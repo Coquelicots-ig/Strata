@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>買い物分担</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="top">
+  <h1 id="roomName">買い物分担</h1>
+  <div id="banner" hidden></div>
+</header>
+<main id="view"></main>
+<nav id="tabs" hidden>
+  <button type="button" data-tab="input">入力</button>
+  <button type="button" data-tab="list">一覧</button>
+  <button type="button" data-tab="export">出力</button>
+  <button type="button" data-tab="settings">設定</button>
+</nav>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="print"></div>
+<script src="catalog.js"></script>
+<script src="demo.js"></script>
+<script src="logic.js"></script>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
