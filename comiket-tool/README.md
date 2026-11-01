@@ -26,6 +26,15 @@ python3 -m http.server -d app 8000
 | `tools/convert_catalog.py` | CSV → `catalog.js` / `demo.js` の変換 |
 | `tests/` | テスト |
 
+Web カタログの CSV から作る（曜日を何日目にするかを指定する）：
+
+```sh
+mkdir -p real-data   # real-data/ はリポジトリに入れない（.gitignore 済み）
+python3 tools/convert_catalog.py --webcatalog --days 土=1,日=2 real-data/WebCatalog.csv app/catalog.js
+```
+
+本物のデータから作った `app/catalog.js` はコミットしない。
+
 ダミーデータを変えたら作り直す：
 
 ```sh
@@ -37,6 +46,7 @@ python3 tools/convert_catalog.py --demo dummy-data/assignments.csv app/demo.js
 
 ```sh
 node --test tests/logic.test.js   # 正規化・検索・CSV・テキスト
+python3 tests/test_convert.py      # Web カタログ CSV の読み込み（架空の行）
 node tests/e2e.js                  # スマホ幅のブラウザで一連の操作（Playwright が必要）
 
 # 大きいカタログでの速さ（架空の 5 万件）
