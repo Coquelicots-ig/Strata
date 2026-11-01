@@ -9,6 +9,23 @@
   if (!DAYS.length) DAYS.push(1);
   const ME_KEY = 'comiket-tool-p1-me';
   const MAX_MEMBERS = 10;
+  // 1 つの HTML にまとめてブラウザ内のページとして開く版では、ダウンロードと印刷が使えないので隠す
+  const EMBED = !!window.COMIKET_EMBED;
+
+  // 確認ダイアログの代わり：1 回目で「もう一度押すと〜」に変わり、4 秒以内にもう一度押すと実行する
+  function armed(b, label) {
+    if (b.dataset.armed) return true;
+    const old = b.textContent;
+    b.dataset.armed = '1';
+    b.textContent = label;
+    setTimeout(() => {
+      if (b.isConnected && b.dataset.armed) {
+        delete b.dataset.armed;
+        b.textContent = old;
+      }
+    }, 4000);
+    return false;
+  }
 
   let me = null;
   try {
@@ -493,14 +510,16 @@
       <section class="card">
         <h2>出力（${n} 件）</h2>
         <p class="muted">公開が終わるとツールから取り出せません。会議の終わりに各自で保存してください。</p>
-        <p><button type="button" class="primary" data-act="csv">CSV をダウンロード</button></p>
+        ${EMBED ? '' : `<p><button type="button" class="primary" data-act="csv">CSV をダウンロード</button></p>`}
         <div class="row">
-          <button type="button" data-act="copy">テキストをコピー</button>
-          <button type="button" data-act="print">印刷用に表示</button>
+          <button type="button" class="${EMBED ? 'primary' : ''}" data-act="copy">テキストをコピー</button>
+          <button type="button" data-act="copyCsv">CSV をコピー</button>
+          ${EMBED ? '' : `<button type="button" data-act="print">印刷用に表示</button>`}
         </div>
+        ${EMBED ? `<p class="hint">お試し版ではファイルの保存と印刷はできません。「CSV をコピー」して、メモ帳やスプレッドシートに貼り付けてください。</p>` : ''}
       </section>
       <section class="card">
-        <h2>テキスト（請負人ごと）</h2>
+        <h2>コピーする内容</h2>
         <textarea id="exText" rows="14" readonly>${esc(text)}</textarea>
       </section>`;
   }
@@ -517,21 +536,22 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
-  async function copyText() {
+  // 押した直後に呼ぶこと（クリップボードはボタン操作の中でしか書けない）
+  function copyText(text, label) {
     const ta = $('#exText');
-    try {
-      await navigator.clipboard.writeText(ta.value);
-      toast('コピーしました');
-    } catch (e) {
+    ta.value = text;
+    const fallback = () => {
       ta.focus();
       ta.select();
+      let ok = false;
       try {
-        document.execCommand('copy');
-        toast('コピーしました');
-      } catch (e2) {
-        toast('コピーできませんでした。テキストを長押しで選んでください');
-      }
-    }
+        ok = document.execCommand('copy');
+      } catch (e) {}
+      toast(ok ? `${label}をコピーしました` : '下の欄を長押しして全部選び、コピーしてください');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => toast(`${label}をコピーしました`), fallback);
+    } else fallback();
   }
 
   function printView() {
@@ -577,8 +597,11 @@
           .join('')}
         <div class="row">
           <button type="button" data-act="mSave">名前の変更を保存</button>
-          ${ms.length < MAX_MEMBERS ? `<button type="button" data-act="mAdd">メンバーを追加</button>` : ''}
         </div>
+        ${ms.length < MAX_MEMBERS ? `<div class="row" style="margin-top:8px">
+          <input type="text" id="mNew" placeholder="追加する人の名前" aria-label="追加する人の名前">
+          <button type="button" data-act="mAdd" style="flex:0 0 auto">追加</button>
+        </div>` : ''}
       </section>
       <section class="card">
         <h2>この端末</h2>
@@ -650,7 +673,7 @@
         resetForm();
         return renderInput();
       case 'del':
-        if (!confirm('この購入物を削除しますか？（一覧の「削除済み」から戻せます）')) return;
+        if (!armed(b, 'もう一度押すと削除')) return;
         S.setDeleted(ui.editing.id, true, me);
         resetForm();
         toast('削除しました');
@@ -673,7 +696,9 @@
       case 'csv':
         return downloadCSV();
       case 'copy':
-        return copyText();
+        return copyText($('#exText').value, 'テキスト');
+      case 'copyCsv':
+        return copyText(L.toCSV(st().items, st().members), 'CSV');
       case 'print':
         return printView();
       case 'wSave':
@@ -697,8 +722,8 @@
         return render();
       }
       case 'mAdd': {
-        const n = (prompt('追加するメンバーの名前') || '').trim();
-        if (!n) return;
+        const n = ($('#mNew').value || '').trim();
+        if (!n) return toast('追加する人の名前を入れてください');
         if (st().members.some((m) => m.name === n)) return toast('同じ名前のメンバーがいます');
         const r = S.addMember(n);
         if (!r.ok) return toast(`メンバーは最大 ${MAX_MEMBERS} 人です`);
@@ -706,7 +731,7 @@
       }
       case 'mDel': {
         if (id === me) return toast('自分自身は外せません');
-        if (!confirm(`${mname(id)} を外しますか？`)) return;
+        if (!armed(b, 'もう一度押す')) return;
         const r = S.removeMember(id);
         if (!r.ok) return toast('依頼人か請負人になっている購入物があるため外せません');
         return render();
@@ -715,7 +740,7 @@
         setMe(null);
         return render();
       case 'reset':
-        if (!confirm('この端末のデータをすべて消します。よろしいですか？')) return;
+        if (!armed(b, 'もう一度押すと全部消えます')) return;
         setMe(null);
         resetForm();
         S.reset();

@@ -9,15 +9,16 @@
   function empty() {
     return { room: null, members: [], items: [] };
   }
+  // 読めなかったとき（プライベートブラウズ等で保存が使えない）は null を返す
   function load() {
     try {
       const s = localStorage.getItem(KEY);
       return s ? JSON.parse(s) : empty();
     } catch (e) {
-      return empty();
+      return null;
     }
   }
-  let state = load();
+  let state = load() || empty();
   let saveFailed = false;
 
   function persist() {
@@ -32,8 +33,9 @@
     listeners.forEach((f) => f(state));
   }
   function refresh() {
-    // 書き込みの前に最新を読み直す（別タブの変更を取り込むため）
-    state = load();
+    // 書き込みの前に最新を読み直す（別タブの変更を取り込むため）。読めなければ手元の状態を使う
+    const s = load();
+    if (s) state = s;
   }
   function uid() {
     return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -45,7 +47,7 @@
 
   window.addEventListener('storage', (e) => {
     if (e.key === KEY) {
-      state = load();
+      state = load() || state;
       emit();
     }
   });

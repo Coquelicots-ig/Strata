@@ -35,7 +35,6 @@ async function shot(page, name) {
   const errors = [];
   const p1 = await ctx.newPage();
   p1.on('pageerror', (e) => errors.push(e.message));
-  p1.on('dialog', (d) => d.accept());
 
   // 部屋を作る
   await p1.goto(url);
@@ -146,7 +145,13 @@ async function shot(page, name) {
   assert.equal(after - Math.max(before, Date.now() - 5000) >= 30 * 60000 - 10000, true);
   await shot(p1, '4-settings');
 
+  // メンバー追加はページ内の入力欄で
+  await p1.fill('#mNew', 'Dさん');
+  await p1.click('[data-act=mAdd]');
+  assert.equal(await p1.evaluate(() => window.Store.get().members.length), 4);
+
   // デモデータで始める
+  await p1.click('[data-act=reset]');
   await p1.click('[data-act=reset]');
   await p1.click('[data-act=demo]');
   await p1.click('[data-act=me]:has-text("Aさん")');
