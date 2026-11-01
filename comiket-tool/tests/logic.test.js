@@ -32,18 +32,18 @@ test('企業ブース番号の正規化（仮の形）', () => {
 
 test('検索：完全一致・日が違う同じ番号・候補', () => {
   const cat = loadCatalog();
-  assert.equal(L.findCatalog(cat, 1, 'circle', '東a1a').exact, null);
-  assert.equal(L.findCatalog(cat, 1, 'circle', '東A1a').exact.circle_name, 'ダミーサークル壱');
-  assert.equal(L.findCatalog(cat, 2, 'circle', '東A01a').exact.circle_name, '二日目ダミー壱');
-  assert.equal(L.findCatalog(cat, 1, 'corporate', '101').exact.circle_name, 'ダミー出版');
+  assert.equal(L.findCatalog(cat, '金', 'circle', '東a1a').exact, null);
+  assert.equal(L.findCatalog(cat, '金', 'circle', '東A1a').exact.circle_name, 'ダミーサークル壱');
+  assert.equal(L.findCatalog(cat, '土', 'circle', '東A01a').exact.circle_name, '土曜ダミー壱');
+  assert.equal(L.findCatalog(cat, '金', 'corporate', '101').exact.circle_name, 'ダミー出版');
   // ホール名を省いた入力は候補に出る
-  const r = L.findCatalog(cat, 1, 'circle', 'A1a');
+  const r = L.findCatalog(cat, '金', 'circle', 'A1a');
   assert.equal(r.exact, null);
   assert.deepEqual(r.candidates.map((c) => c.circle_no), ['東A01a']);
   // a/b を省くと両方が候補に出る
-  assert.deepEqual(L.findCatalog(cat, 1, 'circle', '東A1').candidates.map((c) => c.circle_no), ['東A01a', '東A01b']);
+  assert.deepEqual(L.findCatalog(cat, '金', 'circle', '東A1').candidates.map((c) => c.circle_no), ['東A01a', '東A01b']);
   // 大文字小文字の違いは候補に出る
-  assert.deepEqual(L.findCatalog(cat, 1, 'circle', '東a01a').candidates.map((c) => c.circle_no), ['東A01a']);
+  assert.deepEqual(L.findCatalog(cat, '金', 'circle', '東a01a').candidates.map((c) => c.circle_no), ['東A01a']);
 });
 
 const members = [
@@ -52,10 +52,10 @@ const members = [
   { id: 'c', name: 'Cさん', order: 2 },
 ];
 const items = [
-  { id: '2', day: 2, kind: 'circle', circle_no: '東C07a', circle_name: 'X', item: '新刊', requests: { a: 1 }, assignee: null, note: '', deleted: false },
-  { id: '1', day: 1, kind: 'corporate', circle_no: '企業101', circle_name: 'Y', item: 'グッズ, "限定"', requests: { b: 2, a: 1 }, assignee: 'c', note: '1000円', deleted: false },
-  { id: '0', day: 1, kind: 'circle', circle_no: '東A01a', circle_name: 'Z', item: '本', requests: { c: 1 }, assignee: 'a', note: '', deleted: false },
-  { id: '9', day: 1, kind: 'circle', circle_no: '東A01a', circle_name: 'Z', item: '消した', requests: { c: 1 }, assignee: 'a', note: '', deleted: true },
+  { id: '2', day: '土', kind: 'circle', circle_no: '東C07a', circle_name: 'X', item: '新刊', requests: { a: 1 }, assignee: null, note: '', deleted: false },
+  { id: '1', day: '金', kind: 'corporate', circle_no: '企業101', circle_name: 'Y', item: 'グッズ, "限定"', requests: { b: 2, a: 1 }, assignee: 'c', note: '1000円', deleted: false },
+  { id: '0', day: '金', kind: 'circle', circle_no: '東A01a', circle_name: 'Z', item: '本', requests: { c: 1 }, assignee: 'a', note: '', deleted: false },
+  { id: '9', day: '金', kind: 'circle', circle_no: '東A01a', circle_name: 'Z', item: '消した', requests: { c: 1 }, assignee: 'a', note: '', deleted: true },
 ];
 
 test('合計個数と依頼人の並び（メンバー登録順）', () => {
@@ -65,11 +65,11 @@ test('合計個数と依頼人の並び（メンバー登録順）', () => {
 
 test('CSV：見出し、並び順、削除済みを除く、エスケープ', () => {
   const lines = L.toCSV(items, members).trim().split('\r\n');
-  assert.equal(lines[0], '何日目,種別,サークル番号,サークル名,購入物,依頼人,合計個数,請負人,備考');
+  assert.equal(lines[0], '曜日,種別,サークル番号,サークル名,購入物,依頼人,合計個数,請負人,備考');
   assert.equal(lines.length, 4);
-  assert.equal(lines[1], '1,サークル,東A01a,Z,本,Cさん×1,1,Aさん,');
-  assert.equal(lines[2], '1,企業,企業101,Y,"グッズ, ""限定""",Aさん×1;Bさん×2,3,Cさん,1000円');
-  assert.equal(lines[3], '2,サークル,東C07a,X,新刊,Aさん×1,1,,');
+  assert.equal(lines[1], '金,サークル,東A01a,Z,本,Cさん×1,1,Aさん,');
+  assert.equal(lines[2], '金,企業,企業101,Y,"グッズ, ""限定""",Aさん×1;Bさん×2,3,Cさん,1000円');
+  assert.equal(lines[3], '土,サークル,東C07a,X,新刊,Aさん×1,1,,');
 });
 
 test('テキスト：請負人ごと、未定は最後', () => {
@@ -83,23 +83,23 @@ test('索引を使った検索（ブロックは指定してもしなくても�
   const cat = L.expandCatalog(loadCatalogRaw());
   const idx = L.createIndex(cat);
   const no = (r) => r.matches.map((c) => c.circle_no);
-  assert.deepEqual(no(L.findBySpace(idx, 1, '東', null, '12', 'a')), ['東B12a']);
+  assert.deepEqual(no(L.findBySpace(idx, '金', '東', null, '12', 'a')), ['東B12a']);
   // ブロック指定なし：ブロック違い（東A01a と 東B01a）が 2 件
-  assert.deepEqual(no(L.findBySpace(idx, 1, '東', null, '１', 'a')), ['東A01a', '東B01a']);
+  assert.deepEqual(no(L.findBySpace(idx, '金', '東', null, '１', 'a')), ['東A01a', '東B01a']);
   // ブロック指定あり：1 件に絞れる
-  assert.deepEqual(no(L.findBySpace(idx, 1, '東', 'B', '1', 'a')), ['東B01a']);
-  assert.deepEqual(no(L.findBySpace(idx, 1, '東', 'A', '01', 'b')), ['東A01b']);
-  assert.deepEqual(no(L.findBySpace(idx, 1, '西', null, '1', 'a')), []);
-  assert.deepEqual(no(L.findBySpace(idx, 3, '西', 'う', '10', 'b')), ['西う10b']);
-  assert.equal(L.findBySpace(idx, 1, '東', null, '', 'a').num, null);
-  assert.equal(idx.byKey.get('1|corporate|企業101').circle_name, 'ダミー出版');
+  assert.deepEqual(no(L.findBySpace(idx, '金', '東', 'B', '1', 'a')), ['東B01a']);
+  assert.deepEqual(no(L.findBySpace(idx, '金', '東', 'A', '01', 'b')), ['東A01b']);
+  assert.deepEqual(no(L.findBySpace(idx, '金', '西', null, '1', 'a')), []);
+  assert.deepEqual(no(L.findBySpace(idx, '日', '西', 'う', '10', 'b')), ['西う10b']);
+  assert.equal(L.findBySpace(idx, '金', '東', null, '', 'a').num, null);
+  assert.equal(idx.byKey.get('金|corporate|企業101').circle_name, 'ダミー出版');
   assert.deepEqual(L.parseSpace('西あ05b'), { hall: '西', block: 'あ', num: 5, ab: 'b' });
   assert.equal(L.buildCircleNo('南', '', 7, 'a'), '南07a');
 });
 
 test('ブロックの並び：大文字・小文字・ひらがな・カタカナの行に分ける', () => {
   const idx = L.createIndex(L.expandCatalog(loadCatalogRaw()));
-  assert.deepEqual(L.blockGroups(idx, 1, '東'), [['A', 'B', 'C'], ['ア', 'イ']]);
-  assert.deepEqual(L.blockGroups(idx, 1, '西'), [['b'], ['あ']]);
-  assert.deepEqual(L.blockGroups(idx, 2, '南'), [['f']]);
+  assert.deepEqual(L.blockGroups(idx, '金', '東'), [['A', 'B', 'C'], ['ア', 'イ']]);
+  assert.deepEqual(L.blockGroups(idx, '金', '西'), [['b'], ['あ']]);
+  assert.deepEqual(L.blockGroups(idx, '土', '南'), [['f']]);
 });

@@ -4,6 +4,17 @@
 
   const KIND_LABEL = { circle: 'サークル', corporate: '企業' };
 
+  // 開催日は曜日（'金' '土' '日' など）で持つ。並び順は setDayOrder で渡す。渡されなければ月〜日の順。
+  let dayOrder = ['月', '火', '水', '木', '金', '土', '日'];
+  function setDayOrder(list) {
+    if (Array.isArray(list) && list.length) dayOrder = list.slice();
+  }
+  function dayRank(d) {
+    const i = dayOrder.indexOf(d);
+    return i < 0 ? dayOrder.length : i;
+  }
+  const dayLabel = (d) => `${d}曜`;
+
   // 全角→半角、空白と区切り記号を除く、数字を 2 桁に、末尾の a/b を小文字に。
   // 企業ブースの番号の実際の書き方は未確認。ここでは「企業」+数字の仮の形にそろえる。
   function normalizeNo(input, kind) {
@@ -135,7 +146,7 @@
   }
 
   function compareItems(a, b) {
-    if (a.day !== b.day) return a.day - b.day;
+    if (a.day !== b.day) return dayRank(a.day) - dayRank(b.day);
     if (a.kind !== b.kind) return a.kind === 'circle' ? -1 : 1;
     const c = a.circle_no.localeCompare(b.circle_no, 'ja');
     if (c) return c;
@@ -147,7 +158,7 @@
     return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 
-  const CSV_HEADER = ['何日目', '種別', 'サークル番号', 'サークル名', '購入物', '依頼人', '合計個数', '請負人', '備考'];
+  const CSV_HEADER = ['曜日', '種別', 'サークル番号', 'サークル名', '購入物', '依頼人', '合計個数', '請負人', '備考'];
 
   function toCSV(items, members) {
     const rows = items
@@ -177,7 +188,7 @@
       if (!list.length) continue;
       out.push(`■ ${g ? memberName(members, g) : '請負人 未定'}（${list.length} 件）`);
       for (const i of list) {
-        out.push(`・${i.day}日目 ${i.circle_no} ${i.circle_name}`);
+        out.push(`・${dayLabel(i.day)} ${i.circle_no} ${i.circle_name}`);
         out.push(`  ${i.item} 計${totalQty(i)}（${formatRequests(i, members, '、')}）`);
         if (i.note) out.push(`  備考: ${i.note}`);
       }
@@ -186,7 +197,7 @@
     return out.join('\n').trim() + '\n';
   }
 
-  const api = { KIND_LABEL, HALLS, parseSpace, buildCircleNo, expandCatalog, createIndex, blockType, blockGroups, findBySpace, normalizeNo, findCatalog, totalQty, memberName, sortedMembers, requestList, formatRequests, compareItems, toCSV, toText };
+  const api = { KIND_LABEL, setDayOrder, dayRank, dayLabel, HALLS, parseSpace, buildCircleNo, expandCatalog, createIndex, blockType, blockGroups, findBySpace, normalizeNo, findCatalog, totalQty, memberName, sortedMembers, requestList, formatRequests, compareItems, toCSV, toText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ComiketLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

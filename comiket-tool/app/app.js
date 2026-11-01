@@ -6,8 +6,13 @@
   const CAT = L.expandCatalog(window.COMIKET_CATALOG);
   const IDX = L.createIndex(CAT);
   const DEMO = window.COMIKET_DEMO || [];
-  const DAYS = [...new Set([1, 2, 3, ...CAT.map((c) => c.day)])].sort((a, b) => a - b);
-  const ME_KEY = 'comiket-tool-p1-me';
+  // 開催日（曜日）の並び。catalog.js の COMIKET_DAYS、無ければカタログにある曜日を月〜日の順に
+  L.setDayOrder(window.COMIKET_DAYS);
+  const DAYS = (window.COMIKET_DAYS && window.COMIKET_DAYS.length ? window.COMIKET_DAYS.slice() : [...new Set(CAT.map((c) => c.day))]).sort(
+    (a, b) => L.dayRank(a) - L.dayRank(b),
+  );
+  if (!DAYS.length) DAYS.push('土');
+  const ME_KEY = 'comiket-tool-p1-v2-me';
   const MAX_MEMBERS = 10;
   // 1 つの HTML にまとめてブラウザ内のページとして開く版では、ダウンロードと印刷が使えないので隠す
   const EMBED = !!window.COMIKET_EMBED;
@@ -290,7 +295,7 @@
     const circle = ui.kind === 'circle';
     view.innerHTML = `
       <section class="card">
-        ${segHTML('day', 'day', DAYS, ui.day, DAYS.map((d) => d + '日目'))}
+        ${segHTML('day', 'day', DAYS, ui.day, DAYS.map(L.dayLabel))}
         ${segHTML('kind', 'kind', ['circle', 'corporate'], ui.kind, ['サークル', '企業'])}
         ${circle ? `<label>ホール</label>${segHTML('hall', 'hall', L.HALLS, ui.hall)}<label>ブロック</label><div id="blocks">${blocksHTML()}</div>` : ''}
         <label for="numInput">${circle ? '番号（数字だけ）と a / b' : '企業ブース番号（数字だけ）'}</label>
@@ -318,7 +323,7 @@
           .map((x) => `<button type="button" data-act="block" data-block="${esc(x.block)}"><b>${esc(x.block)}</b>　${esc(x.circle_name)}</button>`)
           .join('')}</div>`;
     } else if (t.from_catalog) {
-      box.innerHTML = `<div class="found">${esc(t.circle_name)}<small>${t.day}日目 ${esc(t.circle_no)}</small></div>`;
+      box.innerHTML = `<div class="found">${esc(t.circle_name)}<small>${L.dayLabel(t.day)} ${esc(t.circle_no)}</small></div>`;
     } else {
       box.innerHTML = `
         <p class="notfound">カタログにありません</p>
@@ -350,7 +355,7 @@
     if (opts.restore) acts.push(`<button type="button" class="small" data-act="restore" data-id="${i.id}">元に戻す</button>`);
     return `
       <div class="item ${opts.tap ? 'tap' : ''}" ${opts.tap ? `data-act="edit" data-id="${i.id}"` : ''}>
-        <div class="where">${i.day}日目 ${esc(i.circle_no)} ${esc(i.circle_name)}${i.kind === 'corporate' ? '<span class="badge">企業</span>' : ''}${i.from_catalog ? '' : '<span class="badge">手入力</span>'}</div>
+        <div class="where">${L.dayLabel(i.day)} ${esc(i.circle_no)} ${esc(i.circle_name)}${i.kind === 'corporate' ? '<span class="badge">企業</span>' : ''}${i.from_catalog ? '' : '<span class="badge">手入力</span>'}</div>
         <div><span class="what">${esc(i.item)}</span> 計${L.totalQty(i)}${opts.mine != null ? `（自分 ${opts.mine}）` : ''}</div>
         <div class="who">依頼：${who || '—'}／請負：${asg}</div>
         ${i.note ? `<div class="note">備考：${esc(i.note)}</div>` : ''}
@@ -516,7 +521,7 @@
   // ---- 一覧 ----
   function filtered() {
     return liveItems()
-      .filter((i) => ui.fDay === 'all' || i.day === Number(ui.fDay))
+      .filter((i) => ui.fDay === 'all' || i.day === ui.fDay)
       .filter((i) => ui.fKind === 'all' || i.kind === ui.fKind)
       .filter((i) => ui.fMember === 'all' || i.assignee === ui.fMember || (i.requests || {})[ui.fMember] > 0)
       .sort(L.compareItems);
@@ -554,7 +559,7 @@
         <button type="button" data-act="mode" data-mode="order" class="${ui.listMode === 'order' ? 'on' : ''}">日・番号順</button>
       </div>
       <div class="filters">
-        <select id="fDay" aria-label="日">${['all', ...DAYS].map((d) => `<option value="${d}" ${String(ui.fDay) === String(d) ? 'selected' : ''}>${d === 'all' ? '全日' : d + '日目'}</option>`).join('')}</select>
+        <select id="fDay" aria-label="曜日">${['all', ...DAYS].map((d) => `<option value="${d}" ${ui.fDay === d ? 'selected' : ''}>${d === 'all' ? '全曜日' : L.dayLabel(d)}</option>`).join('')}</select>
         <select id="fKind" aria-label="種別">${[['all', '全種別'], ['circle', 'サークル'], ['corporate', '企業']].map(([v, n]) => `<option value="${v}" ${ui.fKind === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
         <select id="fMember" aria-label="メンバー"><option value="all">全員</option>${members().map((m) => `<option value="${m.id}" ${ui.fMember === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
       </div>
@@ -628,7 +633,7 @@
         (i) => `<tr><td>${i.day}</td><td>${esc(L.KIND_LABEL[i.kind])}</td><td>${esc(i.circle_no)}</td><td>${esc(i.circle_name)}</td><td>${esc(i.item)}</td><td>${esc(L.formatRequests(i, ms, '、'))}</td><td>${L.totalQty(i)}</td><td>${i.assignee ? esc(mname(i.assignee)) : '未定'}</td><td>${esc(i.note)}</td></tr>`,
       )
       .join('');
-    $('#print').innerHTML = `<h1>${esc(st().room.name)}</h1><table><thead><tr><th>日</th><th>種別</th><th>番号</th><th>名前</th><th>購入物</th><th>依頼人</th><th>計</th><th>請負人</th><th>備考</th></tr></thead><tbody>${rows}</tbody></table>`;
+    $('#print').innerHTML = `<h1>${esc(st().room.name)}</h1><table><thead><tr><th>曜日</th><th>種別</th><th>番号</th><th>名前</th><th>購入物</th><th>依頼人</th><th>計</th><th>請負人</th><th>備考</th></tr></thead><tbody>${rows}</tbody></table>`;
     window.print();
   }
 
@@ -710,7 +715,7 @@
       case 'hall':
       case 'ab':
         syncText();
-        if (act === 'day') ui.day = Number(b.dataset.day);
+        if (act === 'day') ui.day = b.dataset.day;
         else ui[act] = b.dataset[act];
         dropMissingBlock();
         return renderInput();

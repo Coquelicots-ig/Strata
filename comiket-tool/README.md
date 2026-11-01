@@ -26,11 +26,11 @@ python3 -m http.server -d app 8000
 | `tools/convert_catalog.py` | CSV → `catalog.js` / `demo.js` の変換 |
 | `tests/` | テスト |
 
-Web カタログの CSV から作る（曜日を何日目にするかを指定する）：
+Web カタログの CSV から作る（`--days` に開催日の曜日を並び順で。データに無い曜日も入れてよい）：
 
 ```sh
 mkdir -p real-data   # real-data/ はリポジトリに入れない（.gitignore 済み）
-python3 tools/convert_catalog.py --webcatalog --days 土=1,日=2 real-data/WebCatalog.csv app/catalog.js
+python3 tools/convert_catalog.py --webcatalog --days 土,日 real-data/WebCatalog.csv app/catalog.js
 ```
 
 本物のデータから作った `app/catalog.js` はコミットしない。
@@ -38,7 +38,7 @@ python3 tools/convert_catalog.py --webcatalog --days 土=1,日=2 real-data/WebCa
 ダミーデータを変えたら作り直す：
 
 ```sh
-python3 tools/convert_catalog.py dummy-data/catalog.csv app/catalog.js
+python3 tools/convert_catalog.py --days 金,土,日 dummy-data/catalog.csv app/catalog.js
 python3 tools/convert_catalog.py --demo dummy-data/assignments.csv app/demo.js
 ```
 
@@ -55,7 +55,7 @@ python3 tools/convert_catalog.py /tmp/big.csv /tmp/big-catalog.js
 node tests/perf.js /tmp/big-catalog.js 4
 ```
 
-お試し用の 1 ファイル版は `python3 tools/build_single.py 出力.html` で作る。
+お試し用の 1 ファイル版は `python3 tools/build_single.py 出力.html` で作る。本物のデータで作るときは `--catalog` と `--demo` で別のファイルを渡す（出力はコミットしない）。
 
 ## P1 でまだやっていないこと
 

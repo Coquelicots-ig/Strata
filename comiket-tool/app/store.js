@@ -3,7 +3,7 @@
 // 同じ端末の別タブとは storage イベントで同期するので、同時編集の動きを 1 台でも試せる。
 (function () {
   'use strict';
-  const KEY = 'comiket-tool-p1';
+  const KEY = 'comiket-tool-p1-v2'; // v2: 開催日を曜日で持つ
   const listeners = [];
 
   function empty() {

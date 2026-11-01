@@ -89,11 +89,11 @@ async function shot(page, name) {
   await p1.click('#blocks button:has-text("変更")');
   await p1.click('#blocks [data-block=""]');
 
-  // 3 日目
-  await p1.click('[data-act=day][data-day="3"]');
+  // 日曜
+  await p1.click('[data-act=day][data-day="日"]');
   await space(p1, '西', '10', 'b');
-  assert.match(await p1.textContent('#lookup .found'), /三日目サンプル/);
-  await p1.click('[data-act=day][data-day="1"]');
+  assert.match(await p1.textContent('#lookup .found'), /日曜サンプル/);
+  await p1.click('[data-act=day][data-day="金"]');
 
   // カタログに無い番号 → 名前を手入力、請負人は未定
   await space(p1, '南', '99', 'a');
@@ -173,11 +173,11 @@ async function shot(page, name) {
   await p1.click('#tabs [data-tab=export]');
   const [dl] = await Promise.all([p1.waitForEvent('download'), p1.click('[data-act=csv]')]);
   const csv = fs.readFileSync(await dl.path(), 'utf8');
-  assert.ok(csv.startsWith('﻿何日目,種別,サークル番号'));
+  assert.ok(csv.startsWith('﻿曜日,種別,サークル番号'));
   const lines = csv.trim().split('\r\n');
   assert.equal(lines.length, 4);
-  assert.ok(lines.includes('1,サークル,東A01a,ダミーサークル壱,新刊セット,Aさん×1;Bさん×2,3,Aさん,1000円・開場直後'), lines.join('\n'));
-  assert.equal(lines[3], '1,企業,企業101,ダミー出版,限定グッズ,Aさん×1,1,Aさん,');
+  assert.ok(lines.includes('金,サークル,東A01a,ダミーサークル壱,新刊セット,Aさん×1;Bさん×2,3,Aさん,1000円・開場直後'), lines.join('\n'));
+  assert.equal(lines[3], '金,企業,企業101,ダミー出版,限定グッズ,Aさん×1,1,Aさん,');
   await shot(p1, '3-export');
 
   // 設定：30 分延長でバナーの終了時刻が変わる

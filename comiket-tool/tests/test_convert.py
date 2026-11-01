@@ -19,14 +19,16 @@ def main():
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "wc.csv"
         p.write_text(SAMPLE, encoding="utf-8")
-        rows = cc.read_webcatalog(str(p), cc.parse_days("土=1,日=2"))
+        rows = cc.read_webcatalog(str(p), cc.parse_days("土,日"))
     assert rows == [
-        {"day": 2, "kind": "circle", "circle_no": "東C06b", "circle_name": "架空サークル甲"},
-        {"day": 1, "kind": "circle", "circle_no": "西あ12a", "circle_name": "架空サークル乙"},
-        {"day": 1, "kind": "circle", "circle_no": "南o41a", "circle_name": "架空サークル丙"},
+        {"day": "日", "kind": "circle", "circle_no": "東C06b", "circle_name": "架空サークル甲"},
+        {"day": "土", "kind": "circle", "circle_no": "西あ12a", "circle_name": "架空サークル乙"},
+        {"day": "土", "kind": "circle", "circle_no": "南o41a", "circle_name": "架空サークル丙"},
     ], rows
     # 執筆者名・URL・メール・メモは取り出さない
     assert all(set(r) == {"day", "kind", "circle_no", "circle_name"} for r in rows)
+    assert cc.day_order([], rows) == ["土", "日"]
+    assert cc.day_order(["金", "土", "日"], rows) == ["金", "土", "日"]
     print("test_convert: ok")
 
 
