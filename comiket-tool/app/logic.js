@@ -49,16 +49,64 @@
     return hall + (block || '') + String(num).padStart(2, '0') + ab;
   }
 
-  // ホール・数字・a/b で探す。ブロックは入力しないので、ブロック違いの複数件が返ることがある。
-  function findBySpace(catalog, day, hall, numInput, ab) {
+  // catalog.js は小さくするため [日, 種別(c/k), 番号, 名前] の配列で持つ。オブジェクトの形も受け付ける。
+  function expandCatalog(raw) {
+    return (raw || []).map((r) =>
+      Array.isArray(r) ? { day: r[0], kind: r[1] === 'k' ? 'corporate' : 'circle', circle_no: r[2], circle_name: r[3] } : r,
+    );
+  }
+
+  // 起動時に 1 回だけ作る索引。4〜5 万件でも、入力のたびに全件をなめないようにする。
+  function createIndex(catalog) {
+    const byKey = new Map(); // 日|種別|番号 → 行
+    const bySpace = new Map(); // 日|ホール|数字|a/b → 行の配列（ブロック違い）
+    const blocks = new Map(); // 日|ホール → ブロック文字の Set
+    const corporate = [];
+    for (const c of catalog) {
+      byKey.set(`${c.day}|${c.kind}|${c.circle_no}`, c);
+      if (c.kind === 'corporate') {
+        corporate.push(c);
+        continue;
+      }
+      const p = parseSpace(c.circle_no);
+      if (!p) continue;
+      c.block = p.block;
+      const k = `${c.day}|${p.hall}|${p.num}|${p.ab}`;
+      if (!bySpace.has(k)) bySpace.set(k, []);
+      bySpace.get(k).push(c);
+      const bk = `${c.day}|${p.hall}`;
+      if (!blocks.has(bk)) blocks.set(bk, new Set());
+      blocks.get(bk).add(p.block);
+    }
+    return { catalog, byKey, bySpace, blocks, corporate };
+  }
+
+  // 0: 大文字 1: 小文字 2: ひらがな 3: カタカナ 4: その他
+  function blockType(b) {
+    const ch = b.charAt(0);
+    if (/[A-Z]/.test(ch)) return 0;
+    if (/[a-z]/.test(ch)) return 1;
+    if (/[\u3041-\u309F]/.test(ch)) return 2;
+    if (/[\u30A0-\u30FF]/.test(ch)) return 3;
+    return 4;
+  }
+
+  // その日・そのホールにあるブロックを、種類ごとの行に分けて返す（空の行は除く）。
+  function blockGroups(index, day, hall) {
+    const set = index.blocks.get(`${day}|${hall}`);
+    const groups = [[], [], [], [], []];
+    if (set) for (const b of set) groups[blockType(b)].push(b);
+    groups.forEach((g) => g.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
+    return groups.filter((g) => g.length);
+  }
+
+  // ホール・(ブロック)・数字・a/b で探す。block が null ならブロック違いをすべて返す。
+  function findBySpace(index, day, hall, block, numInput, ab) {
     const digits = String(numInput || '').normalize('NFKC').replace(/\D/g, '');
     if (!digits) return { num: null, matches: [] };
     const num = parseInt(digits, 10);
-    const matches = catalog.filter((c) => {
-      if (c.day !== day || c.kind !== 'circle') return false;
-      const p = parseSpace(c.circle_no);
-      return p && p.hall === hall && p.num === num && p.ab === ab;
-    });
+    const all = index.bySpace.get(`${day}|${hall}|${num}|${ab}`) || [];
+    const matches = block == null ? all.slice().sort((a, b) => (a.block < b.block ? -1 : 1)) : all.filter((c) => c.block === block);
     return { num, matches };
   }
 
@@ -138,7 +186,7 @@
     return out.join('\n').trim() + '\n';
   }
 
-  const api = { KIND_LABEL, HALLS, parseSpace, buildCircleNo, findBySpace, normalizeNo, findCatalog, totalQty, memberName, sortedMembers, requestList, formatRequests, compareItems, toCSV, toText };
+  const api = { KIND_LABEL, HALLS, parseSpace, buildCircleNo, expandCatalog, createIndex, blockType, blockGroups, findBySpace, normalizeNo, findCatalog, totalQty, memberName, sortedMembers, requestList, formatRequests, compareItems, toCSV, toText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ComiketLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

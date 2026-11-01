@@ -9,7 +9,10 @@ const L = require('../app/logic.js');
 function loadCatalog() {
   const ctx = { window: {} };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../app/catalog.js'), 'utf8'), ctx);
-  return JSON.parse(JSON.stringify(ctx.window.COMIKET_CATALOG)); // vm の別領域の配列を通常の配列に
+  return L.expandCatalog(JSON.parse(JSON.stringify(ctx.window.COMIKET_CATALOG))); // vm の別領域の配列を通常の配列に
+}
+function loadCatalogRaw() {
+  return loadCatalog();
 }
 
 test('サークル番号の正規化', () => {
@@ -76,16 +79,27 @@ test('テキスト：請負人ごと、未定は最後', () => {
   assert.ok(!t.includes('消した'));
 });
 
-test('ホール・数字・a/b での検索（ブロックは入力しない）', () => {
-  const cat = loadCatalog();
-  const one = L.findBySpace(cat, 1, '東', '12', 'a');
-  assert.deepEqual(one.matches.map((c) => c.circle_name), ['サンプル工房']);
-  // ブロック違い（東A01a と 東B01a）は 2 件になる
-  assert.deepEqual(L.findBySpace(cat, 1, '東', '１', 'a').matches.map((c) => c.circle_no), ['東A01a', '東B01a']);
-  assert.deepEqual(L.findBySpace(cat, 1, '東', '01', 'b').matches.map((c) => c.circle_no), ['東A01b']);
-  assert.deepEqual(L.findBySpace(cat, 1, '西', '1', 'a').matches, []);
-  assert.deepEqual(L.findBySpace(cat, 3, '西', '10', 'b').matches.map((c) => c.circle_name), ['三日目サンプル']);
-  assert.equal(L.findBySpace(cat, 1, '東', '', 'a').num, null);
+test('索引を使った検索（ブロックは指定してもしなくてもよい）', () => {
+  const cat = L.expandCatalog(loadCatalogRaw());
+  const idx = L.createIndex(cat);
+  const no = (r) => r.matches.map((c) => c.circle_no);
+  assert.deepEqual(no(L.findBySpace(idx, 1, '東', null, '12', 'a')), ['東B12a']);
+  // ブロック指定なし：ブロック違い（東A01a と 東B01a）が 2 件
+  assert.deepEqual(no(L.findBySpace(idx, 1, '東', null, '１', 'a')), ['東A01a', '東B01a']);
+  // ブロック指定あり：1 件に絞れる
+  assert.deepEqual(no(L.findBySpace(idx, 1, '東', 'B', '1', 'a')), ['東B01a']);
+  assert.deepEqual(no(L.findBySpace(idx, 1, '東', 'A', '01', 'b')), ['東A01b']);
+  assert.deepEqual(no(L.findBySpace(idx, 1, '西', null, '1', 'a')), []);
+  assert.deepEqual(no(L.findBySpace(idx, 3, '西', 'う', '10', 'b')), ['西う10b']);
+  assert.equal(L.findBySpace(idx, 1, '東', null, '', 'a').num, null);
+  assert.equal(idx.byKey.get('1|corporate|企業101').circle_name, 'ダミー出版');
   assert.deepEqual(L.parseSpace('西あ05b'), { hall: '西', block: 'あ', num: 5, ab: 'b' });
   assert.equal(L.buildCircleNo('南', '', 7, 'a'), '南07a');
+});
+
+test('ブロックの並び：大文字・小文字・ひらがな・カタカナの行に分ける', () => {
+  const idx = L.createIndex(L.expandCatalog(loadCatalogRaw()));
+  assert.deepEqual(L.blockGroups(idx, 1, '東'), [['A', 'B', 'C'], ['ア', 'イ']]);
+  assert.deepEqual(L.blockGroups(idx, 1, '西'), [['b'], ['あ']]);
+  assert.deepEqual(L.blockGroups(idx, 2, '南'), [['f']]);
 });

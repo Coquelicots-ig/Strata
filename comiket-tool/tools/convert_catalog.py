@@ -5,7 +5,7 @@
     python3 tools/convert_catalog.py --demo dummy-data/assignments.csv app/demo.js
 
 本物のカタログ DB が手に入ったら、その形式を読む関数をここに足す。
-アプリ側は catalog.js の形（day, kind, circle_no, circle_name）だけを見る。
+アプリ側は catalog.js の形（[日, 種別 c/k, 番号, 名前] の配列）だけを見る。
 """
 
 import argparse
@@ -72,9 +72,13 @@ def main():
     a = ap.parse_args()
     if a.demo:
         data, var = read_demo(a.src), "COMIKET_DEMO"
+        body = json.dumps(data, ensure_ascii=False, indent=1)
     else:
+        # 4〜5 万件を見込み、1 行を [日, 種別(c/k), 番号, 名前] の配列に詰め、1 件 1 行で書く
         data, var = read_catalog(a.src), "COMIKET_CATALOG"
-    body = json.dumps(data, ensure_ascii=False, indent=1)
+        rows = [json.dumps([r["day"], "k" if r["kind"] == "corporate" else "c", r["circle_no"], r["circle_name"]],
+                           ensure_ascii=False, separators=(",", ":")) for r in data]
+        body = "[\n" + ",\n".join(rows) + "\n]"
     with open(a.dst, "w", encoding="utf-8") as f:
         f.write(f"// {a.src} から生成。手で編集しない。\nwindow.{var} = {body};\n")
     print(f"{a.dst}: {len(data)} 件")

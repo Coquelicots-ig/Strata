@@ -38,7 +38,14 @@ python3 tools/convert_catalog.py --demo dummy-data/assignments.csv app/demo.js
 ```sh
 node --test tests/logic.test.js   # 正規化・検索・CSV・テキスト
 node tests/e2e.js                  # スマホ幅のブラウザで一連の操作（Playwright が必要）
+
+# 大きいカタログでの速さ（架空の 5 万件）
+python3 tools/make_synthetic_catalog.py 50000 /tmp/big.csv
+python3 tools/convert_catalog.py /tmp/big.csv /tmp/big-catalog.js
+node tests/perf.js /tmp/big-catalog.js 4
 ```
+
+お試し用の 1 ファイル版は `python3 tools/build_single.py 出力.html` で作る。
 
 ## P1 でまだやっていないこと
 

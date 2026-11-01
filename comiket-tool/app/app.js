@@ -3,7 +3,8 @@
   'use strict';
   const L = window.ComiketLogic;
   const S = window.Store;
-  const CAT = window.COMIKET_CATALOG || [];
+  const CAT = L.expandCatalog(window.COMIKET_CATALOG);
+  const IDX = L.createIndex(CAT);
   const DEMO = window.COMIKET_DEMO || [];
   const DAYS = [...new Set([1, 2, 3, ...CAT.map((c) => c.day)])].sort((a, b) => a - b);
   const ME_KEY = 'comiket-tool-p1-me';
@@ -38,7 +39,8 @@
     hall: '東',
     ab: 'a',
     num: '', // 数字だけ（企業ブースも数字だけ）
-    picked: null, // ブロック違いが複数あるときに選んだサークル番号
+    block: null, // 選んだブロック。null は「指定なし」。登録後も残す
+    blockOpen: false, // ブロックを選んだ後で一覧を開き直しているか
     manualBlock: '',
     manualName: '',
     editing: null, // { id, version, origRequests }
@@ -196,7 +198,7 @@
     for (const d of DEMO) {
       const requests = {};
       for (const [n, q] of Object.entries(d.requests)) if (byName[n]) requests[byName[n]] = q;
-      const hit = CAT.find((c) => c.day === d.day && c.kind === d.kind && c.circle_no === d.circle_no);
+      const hit = IDX.byKey.get(`${d.day}|${d.kind}|${d.circle_no}`);
       S.addItem(
         {
           day: d.day,
@@ -237,17 +239,19 @@
   function target() {
     const base = { day: ui.day, kind: ui.kind };
     if (ui.kind === 'corporate') {
-      const r = L.findCatalog(CAT, ui.day, 'corporate', ui.num);
+      const r = L.findCatalog(IDX.corporate, ui.day, 'corporate', ui.num);
       if (!r.no) return null;
       if (r.exact) return { ...base, circle_no: r.exact.circle_no, circle_name: r.exact.circle_name, from_catalog: true, matches: [r.exact] };
       return { ...base, circle_no: r.no, circle_name: ui.manualName.trim(), from_catalog: false, matches: [] };
     }
-    const r = L.findBySpace(CAT, ui.day, ui.hall, ui.num, ui.ab);
+    const r = L.findBySpace(IDX, ui.day, ui.hall, ui.block, ui.num, ui.ab);
     if (r.num == null) return null;
-    const hit = r.matches.length === 1 ? r.matches[0] : r.matches.find((c) => c.circle_no === ui.picked);
-    if (hit) return { ...base, circle_no: hit.circle_no, circle_name: hit.circle_name, from_catalog: true, matches: r.matches };
+    if (r.matches.length === 1) {
+      const hit = r.matches[0];
+      return { ...base, circle_no: hit.circle_no, circle_name: hit.circle_name, from_catalog: true, matches: r.matches };
+    }
     if (r.matches.length > 1) return { ...base, pending: true, matches: r.matches };
-    const block = ui.manualBlock.normalize('NFKC').trim();
+    const block = ui.block != null ? ui.block : ui.manualBlock.normalize('NFKC').trim();
     return { ...base, circle_no: L.buildCircleNo(ui.hall, block, r.num, ui.ab), circle_name: ui.manualName.trim(), from_catalog: false, matches: [] };
   }
 
@@ -257,6 +261,30 @@
       .join('')}</div>`;
   }
 
+  function currentBlocks() {
+    const groups = L.blockGroups(IDX, ui.day, ui.hall);
+    // 編集中の購入物のブロックがカタログに無い場合も選べるように足す
+    if (ui.block != null && !groups.some((g) => g.includes(ui.block))) groups.push([ui.block]);
+    return groups;
+  }
+
+  function blocksHTML() {
+    // ブロックを選んだら一覧を畳み、番号欄を画面の上のほうに保つ
+    if (ui.block != null && !ui.blockOpen) {
+      return `<div class="brow"><button type="button" data-act="blockOpen" class="on" aria-label="ブロック ${esc(ui.block)}。タップで変更">${esc(ui.block)}</button><button type="button" data-act="blockOpen" class="small">変更</button></div>`;
+    }
+    const chip = (b, label) =>
+      `<button type="button" data-act="block" data-block="${esc(b)}" class="${(ui.block == null ? '' : ui.block) === b ? 'on' : ''}">${esc(label || b)}</button>`;
+    return `<div class="brow">${chip('', '指定なし')}</div>${currentBlocks()
+      .map((g) => `<div class="brow">${g.map((b) => chip(b)).join('')}</div>`)
+      .join('')}`;
+  }
+
+  // 日やホールを変えたとき、そこに無いブロックの選択は外す
+  function dropMissingBlock() {
+    if (ui.block != null && !L.blockGroups(IDX, ui.day, ui.hall).some((g) => g.includes(ui.block))) ui.block = null;
+  }
+
   function renderInput() {
     if (!ui.form) ui.form = newForm();
     const circle = ui.kind === 'circle';
@@ -264,7 +292,7 @@
       <section class="card">
         ${segHTML('day', 'day', DAYS, ui.day, DAYS.map((d) => d + '日目'))}
         ${segHTML('kind', 'kind', ['circle', 'corporate'], ui.kind, ['サークル', '企業'])}
-        ${circle ? `<label>ホール</label>${segHTML('hall', 'hall', L.HALLS, ui.hall)}` : ''}
+        ${circle ? `<label>ホール</label>${segHTML('hall', 'hall', L.HALLS, ui.hall)}<label>ブロック</label><div id="blocks">${blocksHTML()}</div>` : ''}
         <label for="numInput">${circle ? '番号（数字だけ）と a / b' : '企業ブース番号（数字だけ）'}</label>
         <div class="numrow">
           <input type="text" id="numInput" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
@@ -285,16 +313,16 @@
       box.innerHTML = `<p class="hint">番号を入れるとサークル名が出ます。</p>`;
     } else if (t.matches.length > 1) {
       box.innerHTML = `
-        <p class="hint">ブロック違いで ${t.matches.length} 件あります。タップして選んでください。</p>
+        <p class="hint">ブロック違いで ${t.matches.length} 件あります。タップして選んでください（選んだブロックは次も使います）。</p>
         <div class="cands">${t.matches
-          .map((x) => `<button type="button" data-act="pick" data-no="${esc(x.circle_no)}" class="${t.circle_no === x.circle_no ? 'on' : ''}">${esc(x.circle_no)}　${esc(x.circle_name)}</button>`)
+          .map((x) => `<button type="button" data-act="block" data-block="${esc(x.block)}"><b>${esc(x.block)}</b>　${esc(x.circle_name)}</button>`)
           .join('')}</div>`;
     } else if (t.from_catalog) {
       box.innerHTML = `<div class="found">${esc(t.circle_name)}<small>${t.day}日目 ${esc(t.circle_no)}</small></div>`;
     } else {
       box.innerHTML = `
         <p class="notfound">カタログにありません</p>
-        ${ui.kind === 'circle' ? `<label for="manualBlock">ブロック（分かれば。例: A）</label>
+        ${ui.kind === 'circle' && ui.block == null ? `<label for="manualBlock">ブロック（分かれば。例: A）</label>
         <input type="text" id="manualBlock" value="${esc(ui.manualBlock)}" autocomplete="off">` : ''}
         <label for="manualName">名前を手で入れて登録できます</label>
         <input type="text" id="manualName" value="${esc(ui.manualName)}" placeholder="サークル名／出展者名">`;
@@ -463,7 +491,6 @@
     ui.kind = i.kind;
     ui.manualName = i.from_catalog ? '' : i.circle_name;
     ui.manualBlock = '';
-    ui.picked = null;
     if (i.kind === 'corporate') ui.num = i.circle_no.replace(/^企業/, '');
     else {
       const p = L.parseSpace(i.circle_no);
@@ -471,8 +498,7 @@
         ui.hall = p.hall;
         ui.ab = p.ab;
         ui.num = String(p.num);
-        ui.picked = i.circle_no;
-        if (!i.from_catalog) ui.manualBlock = p.block;
+        ui.block = p.block;
       }
     }
     ui.editing = {
@@ -686,19 +712,24 @@
         syncText();
         if (act === 'day') ui.day = Number(b.dataset.day);
         else ui[act] = b.dataset[act];
-        ui.picked = null;
+        dropMissingBlock();
         return renderInput();
       case 'kind':
         syncText();
         ui.kind = b.dataset.kind;
         ui.num = '';
-        ui.picked = null;
         ui.manualName = '';
         ui.manualBlock = '';
         return renderInput();
-      case 'pick':
+      case 'blockOpen':
+        ui.blockOpen = true;
+        $('#blocks').innerHTML = blocksHTML();
+        return;
+      case 'block':
         syncText();
-        ui.picked = b.dataset.no;
+        ui.block = b.dataset.block === '' ? null : b.dataset.block;
+        ui.blockOpen = false;
+        if ($('#blocks')) $('#blocks').innerHTML = blocksHTML();
         return updateLookup();
       case 'qty': {
         syncText();
@@ -797,7 +828,6 @@
     if (e.target.id === 'numInput') {
       syncText();
       ui.num = e.target.value;
-      ui.picked = null;
       updateLookup();
     } else if (e.target.id === 'manualBlock') {
       // 入力中の欄を書き換えないよう、下の 2 つだけ描き直す
@@ -809,6 +839,11 @@
     } else if (e.target.id === 'manualName') {
       ui.manualName = e.target.value;
     }
+  });
+
+  // 番号欄に触れたら中身を全部選ぶ。次の番号をそのまま打ち込める
+  view.addEventListener('focusin', (e) => {
+    if (e.target.id === 'numInput') setTimeout(() => e.target.select(), 0);
   });
 
   view.addEventListener('change', (e) => {

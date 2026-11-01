@@ -174,3 +174,8 @@ button:disabled { opacity: .5; }
 .numrow .seg { flex: 0 0 auto; margin-bottom: 0; }
 .numrow .seg button { min-width: 52px; }
 .cands button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+
+#blocks { display: flex; flex-direction: column; gap: 4px; }
+.brow { display: flex; flex-wrap: wrap; gap: 4px; }
+.brow button { min-width: 40px; min-height: 40px; padding: 4px 6px; font-size: 16px; }
+.brow button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 700; }

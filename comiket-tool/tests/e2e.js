@@ -23,12 +23,12 @@ function serve() {
   return new Promise((r) => srv.listen(0, '127.0.0.1', () => r(srv)));
 }
 
-// ホールと a/b をタップし、数字を入れる。ブロック違いがあれば pick を選ぶ
+// ホールと a/b をタップし、数字を入れる。ブロック違いの候補が出たら pick のブロックを選ぶ
 async function space(page, hall, num, ab, pick) {
   await page.click(`[data-act=hall][data-hall="${hall}"]`);
   await page.click(`[data-act=ab][data-ab="${ab}"]`);
   await page.fill('#numInput', num);
-  if (pick) await page.click(`[data-act=pick][data-no="${pick}"]`);
+  if (pick) await page.click(`#lookup [data-act=block][data-block="${pick}"]`);
 }
 
 async function plus(page, nth) {
@@ -56,7 +56,7 @@ async function shot(page, name) {
   await p1.click('[data-act=me]:has-text("Aさん")');
 
   // ホール・数字・a/b で探す。全角の数字でもよい。ブロック違いが 2 件あるので選ぶ
-  await space(p1, '東', '１', 'a', '東A01a');
+  await space(p1, '東', '１', 'a', 'A');
   assert.match(await p1.textContent('#lookup .found, #lookup .cands'), /ダミーサークル壱/);
   // 購入物は「新刊」、依頼人の個数は全員 0 で始まる
   assert.equal(await p1.inputValue('#fItem'), '新刊');
@@ -74,6 +74,20 @@ async function shot(page, name) {
   assert.equal(await p1.locator('#existing .item').count(), 1);
   assert.match(await p1.textContent('#existing .item'), /計3/);
   assert.equal(await p1.inputValue('#fItem'), '新刊'); // 登録後も新刊に戻る
+
+  // 選んだブロック A は残るので、数字と b だけで東A01b が出る
+  assert.equal((await p1.textContent('#blocks')).trim().startsWith('A'), true); // 一覧は畳まれ、A だけが出る
+  assert.equal(await p1.locator('#blocks [data-act=block]').count(), 0);
+  await p1.click('[data-act=ab][data-ab="b"]');
+  assert.match(await p1.textContent('#lookup .found'), /ダミーサークル弐/);
+  // ブロック ア を選んで 3 と打つ
+  await p1.click('[data-act=ab][data-ab="a"]');
+  await p1.click('#blocks button:has-text("変更")');
+  await p1.click('#blocks [data-block="ア"]');
+  await p1.fill('#numInput', '3');
+  assert.match(await p1.textContent('#lookup .found'), /アブロック堂/);
+  await p1.click('#blocks button:has-text("変更")');
+  await p1.click('#blocks [data-block=""]');
 
   // 3 日目
   await p1.click('[data-act=day][data-day="3"]');
@@ -123,7 +137,8 @@ async function shot(page, name) {
   await space(p2, '南', '99', 'a');
   await p2.click('[data-act=join]');
   // B さんが新刊セットの備考を変えて保存
-  await space(p2, '東', '1', 'a', '東A01a');
+  await p2.click('[data-act=block][data-block=""]');
+  await space(p2, '東', '1', 'a', 'A');
   await p2.click('#existing [data-act=edit]');
   await p2.fill('#fNote', '1000円・開場直後');
   await p2.click('[data-act=save]');
