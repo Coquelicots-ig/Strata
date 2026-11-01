@@ -77,5 +77,29 @@ window.COMIKET_CATALOG = [
   "kind": "corporate",
   "circle_no": "企業101",
   "circle_name": "ダミー出版"
+ },
+ {
+  "day": 1,
+  "kind": "circle",
+  "circle_no": "東B01a",
+  "circle_name": "ブロック違いサンプル"
+ },
+ {
+  "day": 3,
+  "kind": "circle",
+  "circle_no": "東D03a",
+  "circle_name": "三日目ダミー"
+ },
+ {
+  "day": 3,
+  "kind": "circle",
+  "circle_no": "西う10b",
+  "circle_name": "三日目サンプル"
+ },
+ {
+  "day": 3,
+  "kind": "corporate",
+  "circle_no": "企業101",
+  "circle_name": "ダミー出版"
  }
 ];

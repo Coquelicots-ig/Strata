@@ -8,3 +8,4 @@ day,kind,circle_no,circle_name,item,requesters,assignee,note
 2,circle,西い21a,テスト同盟,グッズセット,Cさん:2,Bさん,午後でも可
 2,circle,南f02b,仮名製作所,新刊,Bさん:1,Bさん,依頼人と請負人が同じ例
 2,corporate,企業101,ダミー出版,限定グッズ,Dさん:1,Eさん,1日目と同じブースの2日目
+3,circle,東D03a,三日目ダミー,新刊,Eさん:1;Aさん:1,Eさん,3日目の例

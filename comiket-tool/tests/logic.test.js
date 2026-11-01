@@ -75,3 +75,17 @@ test('テキスト：請負人ごと、未定は最後', () => {
   assert.deepEqual(heads, ['■ Aさん（1 件）', '■ Cさん（1 件）', '■ 請負人 未定（1 件）']);
   assert.ok(!t.includes('消した'));
 });
+
+test('ホール・数字・a/b での検索（ブロックは入力しない）', () => {
+  const cat = loadCatalog();
+  const one = L.findBySpace(cat, 1, '東', '12', 'a');
+  assert.deepEqual(one.matches.map((c) => c.circle_name), ['サンプル工房']);
+  // ブロック違い（東A01a と 東B01a）は 2 件になる
+  assert.deepEqual(L.findBySpace(cat, 1, '東', '１', 'a').matches.map((c) => c.circle_no), ['東A01a', '東B01a']);
+  assert.deepEqual(L.findBySpace(cat, 1, '東', '01', 'b').matches.map((c) => c.circle_no), ['東A01b']);
+  assert.deepEqual(L.findBySpace(cat, 1, '西', '1', 'a').matches, []);
+  assert.deepEqual(L.findBySpace(cat, 3, '西', '10', 'b').matches.map((c) => c.circle_name), ['三日目サンプル']);
+  assert.equal(L.findBySpace(cat, 1, '東', '', 'a').num, null);
+  assert.deepEqual(L.parseSpace('西あ05b'), { hall: '西', block: 'あ', num: 5, ab: 'b' });
+  assert.equal(L.buildCircleNo('南', '', 7, 'a'), '南07a');
+});

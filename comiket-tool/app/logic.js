@@ -37,6 +37,31 @@
     return { no, exact, candidates };
   }
 
+  const HALLS = ['東', '西', '南'];
+
+  // カタログのサークル番号を「ホール・ブロック・数字・a/b」に分ける。形が違えば null。
+  function parseSpace(no) {
+    const m = String(no || '').match(/^(東|西|南)(.*?)(\d+)([ab])$/);
+    return m ? { hall: m[1], block: m[2], num: parseInt(m[3], 10), ab: m[4] } : null;
+  }
+
+  function buildCircleNo(hall, block, num, ab) {
+    return hall + (block || '') + String(num).padStart(2, '0') + ab;
+  }
+
+  // ホール・数字・a/b で探す。ブロックは入力しないので、ブロック違いの複数件が返ることがある。
+  function findBySpace(catalog, day, hall, numInput, ab) {
+    const digits = String(numInput || '').normalize('NFKC').replace(/\D/g, '');
+    if (!digits) return { num: null, matches: [] };
+    const num = parseInt(digits, 10);
+    const matches = catalog.filter((c) => {
+      if (c.day !== day || c.kind !== 'circle') return false;
+      const p = parseSpace(c.circle_no);
+      return p && p.hall === hall && p.num === num && p.ab === ab;
+    });
+    return { num, matches };
+  }
+
   function totalQty(item) {
     return Object.values(item.requests || {}).reduce((a, b) => a + b, 0);
   }
@@ -113,7 +138,7 @@
     return out.join('\n').trim() + '\n';
   }
 
-  const api = { KIND_LABEL, normalizeNo, findCatalog, totalQty, memberName, sortedMembers, requestList, formatRequests, compareItems, toCSV, toText };
+  const api = { KIND_LABEL, HALLS, parseSpace, buildCircleNo, findBySpace, normalizeNo, findCatalog, totalQty, memberName, sortedMembers, requestList, formatRequests, compareItems, toCSV, toText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ComiketLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -112,5 +112,18 @@ window.COMIKET_DEMO = [
   },
   "assignee": "Eさん",
   "note": "1日目と同じブースの2日目"
+ },
+ {
+  "day": 3,
+  "kind": "circle",
+  "circle_no": "東D03a",
+  "circle_name": "三日目ダミー",
+  "item": "新刊",
+  "requests": {
+   "Eさん": 1,
+   "Aさん": 1
+  },
+  "assignee": "Eさん",
+  "note": "3日目の例"
  }
 ];

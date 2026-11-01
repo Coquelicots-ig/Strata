@@ -5,8 +5,7 @@
   const S = window.Store;
   const CAT = window.COMIKET_CATALOG || [];
   const DEMO = window.COMIKET_DEMO || [];
-  const DAYS = [...new Set(CAT.map((c) => c.day))].sort((a, b) => a - b);
-  if (!DAYS.length) DAYS.push(1);
+  const DAYS = [...new Set([1, 2, 3, ...CAT.map((c) => c.day)])].sort((a, b) => a - b);
   const ME_KEY = 'comiket-tool-p1-me';
   const MAX_MEMBERS = 10;
   // 1 つの HTML にまとめてブラウザ内のページとして開く版では、ダウンロードと印刷が使えないので隠す
@@ -36,7 +35,11 @@
     tab: 'input',
     day: DAYS[0],
     kind: 'circle',
-    no: '',
+    hall: '東',
+    ab: 'a',
+    num: '', // 数字だけ（企業ブースも数字だけ）
+    picked: null, // ブロック違いが複数あるときに選んだサークル番号
+    manualBlock: '',
     manualName: '',
     editing: null, // { id, version, origRequests }
     form: null,
@@ -227,28 +230,47 @@
 
   // ---- 入力 ----
   function newForm() {
-    return { item: '', requests: me ? { [me]: 1 } : {}, assignee: null, note: '' };
+    return { item: '新刊', requests: {}, assignee: null, note: '' };
   }
 
+  // 入力から「どこの購入物か」を決める。null は未入力、pending はブロック違いから選ぶ必要がある状態。
   function target() {
-    const r = L.findCatalog(CAT, ui.day, ui.kind, ui.no);
-    if (!r.no) return null;
-    if (r.exact) return { day: ui.day, kind: ui.kind, circle_no: r.exact.circle_no, circle_name: r.exact.circle_name, from_catalog: true, r };
-    return { day: ui.day, kind: ui.kind, circle_no: r.no, circle_name: ui.manualName.trim(), from_catalog: false, r };
+    const base = { day: ui.day, kind: ui.kind };
+    if (ui.kind === 'corporate') {
+      const r = L.findCatalog(CAT, ui.day, 'corporate', ui.num);
+      if (!r.no) return null;
+      if (r.exact) return { ...base, circle_no: r.exact.circle_no, circle_name: r.exact.circle_name, from_catalog: true, matches: [r.exact] };
+      return { ...base, circle_no: r.no, circle_name: ui.manualName.trim(), from_catalog: false, matches: [] };
+    }
+    const r = L.findBySpace(CAT, ui.day, ui.hall, ui.num, ui.ab);
+    if (r.num == null) return null;
+    const hit = r.matches.length === 1 ? r.matches[0] : r.matches.find((c) => c.circle_no === ui.picked);
+    if (hit) return { ...base, circle_no: hit.circle_no, circle_name: hit.circle_name, from_catalog: true, matches: r.matches };
+    if (r.matches.length > 1) return { ...base, pending: true, matches: r.matches };
+    const block = ui.manualBlock.normalize('NFKC').trim();
+    return { ...base, circle_no: L.buildCircleNo(ui.hall, block, r.num, ui.ab), circle_name: ui.manualName.trim(), from_catalog: false, matches: [] };
+  }
+
+  function segHTML(act, key, values, current, labels) {
+    return `<div class="seg">${values
+      .map((v, k) => `<button type="button" data-act="${act}" data-${key}="${v}" class="${String(v) === String(current) ? 'on' : ''}">${labels ? labels[k] : v}</button>`)
+      .join('')}</div>`;
   }
 
   function renderInput() {
     if (!ui.form) ui.form = newForm();
+    const circle = ui.kind === 'circle';
     view.innerHTML = `
       <section class="card">
-        <div class="seg">${DAYS.map((d) => `<button type="button" data-act="day" data-day="${d}" class="${d === ui.day ? 'on' : ''}">${d}日目</button>`).join('')}</div>
-        <div class="seg">
-          <button type="button" data-act="kind" data-kind="circle" class="${ui.kind === 'circle' ? 'on' : ''}">サークル</button>
-          <button type="button" data-act="kind" data-kind="corporate" class="${ui.kind === 'corporate' ? 'on' : ''}">企業</button>
+        ${segHTML('day', 'day', DAYS, ui.day, DAYS.map((d) => d + '日目'))}
+        ${segHTML('kind', 'kind', ['circle', 'corporate'], ui.kind, ['サークル', '企業'])}
+        ${circle ? `<label>ホール</label>${segHTML('hall', 'hall', L.HALLS, ui.hall)}` : ''}
+        <label for="numInput">${circle ? '番号（数字だけ）と a / b' : '企業ブース番号（数字だけ）'}</label>
+        <div class="numrow">
+          <input type="text" id="numInput" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+            placeholder="${circle ? '例: 1' : '例: 101'}" value="${esc(ui.num)}">
+          ${circle ? segHTML('ab', 'ab', ['a', 'b'], ui.ab) : ''}
         </div>
-        <label for="noInput">${ui.kind === 'circle' ? 'サークル番号' : '企業ブース番号'}</label>
-        <input type="text" id="noInput" autocomplete="off" autocapitalize="off" spellcheck="false"
-          placeholder="${ui.kind === 'circle' ? '例: 東A01a' : '例: 101'}" value="${esc(ui.no)}">
         <div id="lookup"></div>
       </section>
       <section id="existing"></section>
@@ -261,20 +283,25 @@
     const box = $('#lookup');
     if (!t) {
       box.innerHTML = `<p class="hint">番号を入れるとサークル名が出ます。</p>`;
+    } else if (t.matches.length > 1) {
+      box.innerHTML = `
+        <p class="hint">ブロック違いで ${t.matches.length} 件あります。タップして選んでください。</p>
+        <div class="cands">${t.matches
+          .map((x) => `<button type="button" data-act="pick" data-no="${esc(x.circle_no)}" class="${t.circle_no === x.circle_no ? 'on' : ''}">${esc(x.circle_no)}　${esc(x.circle_name)}</button>`)
+          .join('')}</div>`;
     } else if (t.from_catalog) {
       box.innerHTML = `<div class="found">${esc(t.circle_name)}<small>${t.day}日目 ${esc(t.circle_no)}</small></div>`;
     } else {
-      const c = t.r.candidates;
       box.innerHTML = `
-        ${c.length ? `<p class="hint">もしかして：</p><div class="cands">${c
-          .map((x) => `<button type="button" data-act="pick" data-no="${esc(x.circle_no)}">${esc(x.circle_no)}　${esc(x.circle_name)}</button>`)
-          .join('')}</div>` : ''}
-        <p class="notfound">カタログにありません（${esc(t.circle_no)}）</p>
+        <p class="notfound">カタログにありません</p>
+        ${ui.kind === 'circle' ? `<label for="manualBlock">ブロック（分かれば。例: A）</label>
+        <input type="text" id="manualBlock" value="${esc(ui.manualBlock)}" autocomplete="off">` : ''}
         <label for="manualName">名前を手で入れて登録できます</label>
         <input type="text" id="manualName" value="${esc(ui.manualName)}" placeholder="サークル名／出展者名">`;
     }
-    renderExisting(t);
-    renderForm(t);
+    const ready = t && !t.pending ? t : null;
+    renderExisting(ready);
+    renderForm(ready);
   }
 
   function itemsAt(t) {
@@ -377,6 +404,7 @@
     const t = target();
     const f = ui.form;
     if (!t) return toast('番号を入れてください');
+    if (t.pending) return toast('ブロック違いの候補から 1 つ選んでください');
     if (!t.from_catalog && !t.circle_name) return toast('カタログにない番号です。名前を入れてください');
     if (!f.item.trim()) return toast('購入物を入れてください');
     if (!Object.values(f.requests).some((q) => q > 0)) return toast('依頼人を 1 人以上選んでください');
@@ -433,8 +461,20 @@
     ui.tab = 'input';
     ui.day = i.day;
     ui.kind = i.kind;
-    ui.no = i.circle_no;
     ui.manualName = i.from_catalog ? '' : i.circle_name;
+    ui.manualBlock = '';
+    ui.picked = null;
+    if (i.kind === 'corporate') ui.num = i.circle_no.replace(/^企業/, '');
+    else {
+      const p = L.parseSpace(i.circle_no);
+      if (p) {
+        ui.hall = p.hall;
+        ui.ab = p.ab;
+        ui.num = String(p.num);
+        ui.picked = i.circle_no;
+        if (!i.from_catalog) ui.manualBlock = p.block;
+      }
+    }
     ui.editing = {
       id: i.id,
       version: i.version,
@@ -641,19 +681,24 @@
         resetForm();
         return render();
       case 'day':
+      case 'hall':
+      case 'ab':
         syncText();
-        ui.day = Number(b.dataset.day);
+        if (act === 'day') ui.day = Number(b.dataset.day);
+        else ui[act] = b.dataset[act];
+        ui.picked = null;
         return renderInput();
       case 'kind':
         syncText();
         ui.kind = b.dataset.kind;
-        ui.no = '';
+        ui.num = '';
+        ui.picked = null;
         ui.manualName = '';
+        ui.manualBlock = '';
         return renderInput();
       case 'pick':
         syncText();
-        ui.no = b.dataset.no;
-        $('#noInput').value = ui.no;
+        ui.picked = b.dataset.no;
         return updateLookup();
       case 'qty': {
         syncText();
@@ -749,11 +794,18 @@
   });
 
   view.addEventListener('input', (e) => {
-    if (e.target.id === 'noInput') {
+    if (e.target.id === 'numInput') {
       syncText();
-      ui.no = e.target.value;
-      ui.manualName = '';
+      ui.num = e.target.value;
+      ui.picked = null;
       updateLookup();
+    } else if (e.target.id === 'manualBlock') {
+      // 入力中の欄を書き換えないよう、下の 2 つだけ描き直す
+      syncText();
+      ui.manualBlock = e.target.value;
+      const t = target();
+      renderExisting(t);
+      renderForm(t);
     } else if (e.target.id === 'manualName') {
       ui.manualName = e.target.value;
     }

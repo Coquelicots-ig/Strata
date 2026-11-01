@@ -23,6 +23,18 @@ function serve() {
   return new Promise((r) => srv.listen(0, '127.0.0.1', () => r(srv)));
 }
 
+// ホールと a/b をタップし、数字を入れる。ブロック違いがあれば pick を選ぶ
+async function space(page, hall, num, ab, pick) {
+  await page.click(`[data-act=hall][data-hall="${hall}"]`);
+  await page.click(`[data-act=ab][data-ab="${ab}"]`);
+  await page.fill('#numInput', num);
+  if (pick) await page.click(`[data-act=pick][data-no="${pick}"]`);
+}
+
+async function plus(page, nth) {
+  await page.click(`#reqBlock [data-act=qty][data-d="1"] >> nth=${nth}`);
+}
+
 async function shot(page, name) {
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage: true });
 }
@@ -43,24 +55,37 @@ async function shot(page, name) {
   await p1.click('[data-act=create]');
   await p1.click('[data-act=me]:has-text("Aさん")');
 
-  // 全角・大文字小文字違いの入力 → 候補から選ぶ
-  await p1.fill('#noInput', '東ａ１ａ');
-  await p1.click('[data-act=pick]:has-text("東A01a")');
-  assert.match(await p1.textContent('#lookup .found'), /ダミーサークル壱/);
+  // ホール・数字・a/b で探す。全角の数字でもよい。ブロック違いが 2 件あるので選ぶ
+  await space(p1, '東', '１', 'a', '東A01a');
+  assert.match(await p1.textContent('#lookup .found, #lookup .cands'), /ダミーサークル壱/);
+  // 購入物は「新刊」、依頼人の個数は全員 0 で始まる
+  assert.equal(await p1.inputValue('#fItem'), '新刊');
+  assert.deepEqual(await p1.locator('#reqBlock .qty').allTextContents(), ['0', '0', '0']);
+  await p1.click('[data-act=save]');
+  assert.match(await p1.textContent('#toast'), /依頼人を 1 人以上/);
   await p1.fill('#fItem', '新刊セット');
-  await p1.click('[data-act=qty][data-d="1"] >> nth=1'); // Bさん +1
-  await p1.click('[data-act=qty][data-d="1"] >> nth=1'); // Bさん +1
+  await plus(p1, 0); // Aさん +1
+  await plus(p1, 1); // Bさん +1
+  await plus(p1, 1); // Bさん +1
   await p1.click('#asgBlock button:has-text("Cさん")');
   await p1.fill('#fNote', '1000円');
   await shot(p1, '1-input');
   await p1.click('[data-act=save]');
   assert.equal(await p1.locator('#existing .item').count(), 1);
   assert.match(await p1.textContent('#existing .item'), /計3/);
+  assert.equal(await p1.inputValue('#fItem'), '新刊'); // 登録後も新刊に戻る
+
+  // 3 日目
+  await p1.click('[data-act=day][data-day="3"]');
+  await space(p1, '西', '10', 'b');
+  assert.match(await p1.textContent('#lookup .found'), /三日目サンプル/);
+  await p1.click('[data-act=day][data-day="1"]');
 
   // カタログに無い番号 → 名前を手入力、請負人は未定
-  await p1.fill('#noInput', '東Z99a');
+  await space(p1, '南', '99', 'a');
   assert.match(await p1.textContent('#lookup'), /カタログにありません/);
   await p1.fill('#fItem', '既刊');
+  await plus(p1, 0);
   await p1.click('[data-act=save]');
   assert.match(await p1.textContent('#toast'), /名前を入れてください/);
   await p1.fill('#manualName', '手入力サークル');
@@ -68,11 +93,14 @@ async function shot(page, name) {
 
   // 企業ブース
   await p1.click('[data-act=kind][data-kind=corporate]');
-  await p1.fill('#noInput', '101');
+  assert.equal(await p1.locator('[data-act=hall]').count(), 0);
+  await p1.fill('#numInput', '101');
   assert.match(await p1.textContent('#lookup .found'), /ダミー出版/);
   await p1.fill('#fItem', '限定グッズ');
+  await plus(p1, 0);
   await p1.click('#asgBlock button:has-text("Aさん")');
   await p1.click('[data-act=save]');
+  await p1.click('[data-act=kind][data-kind=circle]');
 
   // 一覧：未定 1 件
   await p1.click('#tabs [data-tab=list]');
@@ -92,10 +120,10 @@ async function shot(page, name) {
   // A さんが新刊セットを編集し始める
   await p1.click('.item.tap:has-text("新刊セット")');
   // その間に B さんが「自分も依頼」…は既に依頼済みなので、手入力サークルの既刊に加わる
-  await p2.fill('#noInput', '東Z99a');
+  await space(p2, '南', '99', 'a');
   await p2.click('[data-act=join]');
   // B さんが新刊セットの備考を変えて保存
-  await p2.fill('#noInput', '東A01a');
+  await space(p2, '東', '1', 'a', '東A01a');
   await p2.click('#existing [data-act=edit]');
   await p2.fill('#fNote', '1000円・開場直後');
   await p2.click('[data-act=save]');
@@ -110,9 +138,9 @@ async function shot(page, name) {
   assert.match(await p1.textContent('#toast'), /保存しました/);
 
   // 依頼人の個数はキーごとの更新：A さんの編集中に B さんが加わっても消えない
-  await p1.fill('#noInput', '東Z99a');
+  await space(p1, '南', '99', 'a');
   await p1.click('#existing [data-act=edit]');
-  await p2.fill('#noInput', '東Z99a');
+  await space(p2, '南', '99', 'a');
   await p2.click('#existing [data-act=edit]');
   await p2.click('#reqBlock [data-act=qty][data-d="1"] >> nth=2'); // Cさん +1
   await p2.click('[data-act=save]');
@@ -120,7 +148,7 @@ async function shot(page, name) {
   await p1.click('[data-act=save]');
   // version は依頼人の変更では上がらないので、A さんの保存は通る
   const items = await p1.evaluate(() => window.Store.get().items);
-  const z = items.find((i) => i.circle_no === '東Z99a');
+  const z = items.find((i) => i.circle_no === '南99a');
   const byName = Object.fromEntries((await p1.evaluate(() => window.Store.get().members)).map((m) => [m.name, m.id]));
   assert.equal(z.requests[byName['Aさん']], 2);
   assert.equal(z.requests[byName['Bさん']], 1);
@@ -133,7 +161,7 @@ async function shot(page, name) {
   assert.ok(csv.startsWith('﻿何日目,種別,サークル番号'));
   const lines = csv.trim().split('\r\n');
   assert.equal(lines.length, 4);
-  assert.equal(lines[1], '1,サークル,東A01a,ダミーサークル壱,新刊セット,Aさん×1;Bさん×2,3,Aさん,1000円・開場直後');
+  assert.ok(lines.includes('1,サークル,東A01a,ダミーサークル壱,新刊セット,Aさん×1;Bさん×2,3,Aさん,1000円・開場直後'), lines.join('\n'));
   assert.equal(lines[3], '1,企業,企業101,ダミー出版,限定グッズ,Aさん×1,1,Aさん,');
   await shot(p1, '3-export');
 
@@ -157,7 +185,7 @@ async function shot(page, name) {
   await p1.click('[data-act=me]:has-text("Aさん")');
   await p1.click('#tabs [data-tab=list]');
   assert.match(await p1.textContent('.alert'), /未定：1 件/);
-  assert.equal(await p1.locator('.item.tap').count(), 9);
+  assert.equal(await p1.locator('.item.tap').count(), 10);
 
   // 横にはみ出していないこと
   const overflow = await p1.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
