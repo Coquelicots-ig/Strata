@@ -178,6 +178,85 @@
     return [CSV_HEADER, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
   }
 
+  // ---- 重複 ----
+  // 同じ曜日・場所で、購入物の名前が同じ（全角半角・空白・大文字小文字の違いは無視）なら重複とみなす
+  function normItem(name) {
+    return String(name || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+  }
+  function dupKey(i) {
+    return `${i.day}|${i.kind}|${i.circle_no}|${normItem(i.item)}`;
+  }
+  // 重複している購入物の id の集合（削除済みは数えない）
+  function findDuplicates(items) {
+    const seen = new Map();
+    for (const i of items) {
+      if (i.deleted) continue;
+      const k = dupKey(i);
+      seen.set(k, (seen.get(k) || []).concat(i.id));
+    }
+    const ids = new Set();
+    for (const list of seen.values()) if (list.length > 1) list.forEach((id) => ids.add(id));
+    return ids;
+  }
+  // これから登録しようとしているもの（day, kind, circle_no, item）と同じものが既にあれば返す
+  function findSame(items, draft) {
+    const k = dupKey(draft);
+    return items.find((i) => !i.deleted && dupKey(i) === k) || null;
+  }
+
+  // ---- 参加者ごとの確認 ----
+  // memberId が「依頼したもの」（自分が依頼人）と「依頼されたもの」（自分が請負人）
+  function memberReport(items, members, memberId) {
+    const live = items.filter((i) => !i.deleted).sort(compareItems);
+    const requested = live
+      .filter((i) => (i.requests || {})[memberId] > 0)
+      .map((i) => ({ item: i, qty: i.requests[memberId], to: i.assignee || null }));
+    const assigned = live
+      .filter((i) => i.assignee === memberId)
+      .map((i) => ({ item: i, qty: totalQty(i), from: requestList(i, members) }));
+    return { requested, assigned };
+  }
+
+  const MEMBER_CSV_HEADER = ['区分', '曜日', '種別', 'サークル番号', 'サークル名', '購入物', '個数', '相手', '内訳', '備考'];
+
+  // 参加者 1 人ぶんの CSV。「依頼した」行の相手は請負人、「依頼された」行の相手は依頼人
+  function toMemberCSV(items, members, memberId) {
+    const { requested, assigned } = memberReport(items, members, memberId);
+    const base = (i) => [i.day, KIND_LABEL[i.kind] || i.kind, i.circle_no, i.circle_name, i.item];
+    const name = (id) => (id === memberId ? '自分' : memberName(members, id));
+    const rows = [
+      ...requested.map((r) => ['依頼した', ...base(r.item), r.qty, r.to ? name(r.to) : '未定', '', r.item.note || '']),
+      ...assigned.map((r) => [
+        '依頼された',
+        ...base(r.item),
+        r.qty,
+        r.from.map((f) => name(f.id)).join(';'),
+        r.from.map((f) => `${name(f.id)}×${f.qty}`).join(';'),
+        r.item.note || '',
+      ]),
+    ];
+    return [MEMBER_CSV_HEADER, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+  }
+
+  function toMemberText(items, members, memberId) {
+    const { requested, assigned } = memberReport(items, members, memberId);
+    const name = (id) => (id === memberId ? '自分' : memberName(members, id));
+    const where = (i) => `${dayLabel(i.day)} ${i.circle_no} ${i.circle_name}`;
+    const out = [`■ ${memberName(members, memberId)} さん`, '', `【依頼したもの】${requested.length} 件`];
+    for (const r of requested) {
+      out.push(`・${where(r.item)}`);
+      out.push(`  ${r.item.item} ×${r.qty} → ${r.to ? name(r.to) : '請負人 未定'}`);
+      if (r.item.note) out.push(`  備考: ${r.item.note}`);
+    }
+    out.push('', `【依頼されたもの（買う物）】${assigned.length} 件`);
+    for (const r of assigned) {
+      out.push(`・${where(r.item)}`);
+      out.push(`  ${r.item.item} 計${r.qty}（${r.from.map((f) => `${name(f.id)}×${f.qty}`).join('、')}）`);
+      if (r.item.note) out.push(`  備考: ${r.item.note}`);
+    }
+    return out.join('\n') + '\n';
+  }
+
   // LINE などに貼る、請負人ごとのテキスト。
   function toText(items, members) {
     const live = items.filter((i) => !i.deleted).sort(compareItems);
@@ -197,7 +276,7 @@
     return out.join('\n').trim() + '\n';
   }
 
-  const api = { KIND_LABEL, setDayOrder, dayRank, dayLabel, HALLS, parseSpace, buildCircleNo, expandCatalog, createIndex, blockType, blockGroups, findBySpace, normalizeNo, findCatalog, totalQty, memberName, sortedMembers, requestList, formatRequests, compareItems, toCSV, toText };
+  const api = { normItem, findDuplicates, findSame, memberReport, toMemberCSV, toMemberText, KIND_LABEL, setDayOrder, dayRank, dayLabel, HALLS, parseSpace, buildCircleNo, expandCatalog, createIndex, blockType, blockGroups, findBySpace, normalizeNo, findCatalog, totalQty, memberName, sortedMembers, requestList, formatRequests, compareItems, toCSV, toText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ComiketLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

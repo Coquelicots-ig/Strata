@@ -61,6 +61,11 @@
     editing: null, // { id, version, origRequests }
     form: null,
     listMode: 'assignee',
+    onlyUnassigned: false, // 一覧で請負人未定だけを出す
+    returnTo: null, // 一覧から編集に来たとき、保存後に一覧へ戻る
+    dupFor: null, // 登録しようとした物と同じ物の id（重複の確認中）
+    dupOk: null, // 「別に登録する」を選んだ重複相手の id
+    exMember: null, // 出力画面で選んでいる参加者
     fDay: 'all',
     fKind: 'all',
     fMember: 'all',
@@ -439,18 +444,22 @@
       .sort(L.compareItems);
   }
 
+  let dupSet = new Set(); // 重複の疑いがある購入物（renderList / renderExisting で更新）
+
   function itemHTML(i, opts) {
     opts = opts || {};
+    const dup = !i.deleted && dupSet.has(i.id);
     const reqs = L.requestList(i, st().members);
     const who = reqs.map((r) => `${esc(r.name)}×${r.qty}`).join('、');
     const asg = i.assignee ? esc(mname(i.assignee)) : '<span class="unassigned">未定</span>';
     const acts = [];
     if (opts.join && me && !(i.requests || {})[me]) acts.push(`<button type="button" class="small" data-act="join" data-id="${i.id}">自分も依頼</button>`);
     if (opts.edit) acts.push(`<button type="button" class="small" data-act="edit" data-id="${i.id}">編集</button>`);
+    if (opts.del) acts.push(`<button type="button" class="small danger" data-act="delQuick" data-id="${i.id}">削除</button>`);
     if (opts.restore) acts.push(`<button type="button" class="small" data-act="restore" data-id="${i.id}">元に戻す</button>`);
     return `
       <div class="item ${opts.tap ? 'tap' : ''}" ${opts.tap ? `data-act="edit" data-id="${i.id}"` : ''}>
-        <div class="where">${L.dayLabel(i.day)} ${esc(i.circle_no)} ${esc(i.circle_name)}${i.kind === 'corporate' ? '<span class="badge">企業</span>' : ''}${i.from_catalog ? '' : '<span class="badge">手入力</span>'}</div>
+        <div class="where">${L.dayLabel(i.day)} ${esc(i.circle_no)} ${esc(i.circle_name)}${i.kind === 'corporate' ? '<span class="badge">企業</span>' : ''}${i.from_catalog ? '' : '<span class="badge">手入力</span>'}${dup ? '<span class="badge warnb">重複?</span>' : ''}</div>
         <div><span class="what">${esc(i.item)}</span> 計${L.totalQty(i)}${opts.mine != null ? `（自分 ${opts.mine}）` : ''}</div>
         <div class="who">依頼：${who || '—'}／請負：${asg}</div>
         ${i.note ? `<div class="note">備考：${esc(i.note)}</div>` : ''}
@@ -465,7 +474,8 @@
       box.innerHTML = '';
       return;
     }
-    box.innerHTML = `<div class="card"><h2>ここの登録済み（${list.length}）</h2>${list.map((i) => itemHTML(i, { join: true, edit: true })).join('')}</div>`;
+    dupSet = L.findDuplicates(st().items);
+    box.innerHTML = `<div class="card"><h2>ここの登録済み（${list.length}）</h2>${list.map((i) => itemHTML(i, { join: true, edit: true, del: true })).join('')}</div>`;
   }
 
   function reqBlockHTML() {
@@ -510,8 +520,21 @@
         <div class="chips" id="asgBlock">${asgBlockHTML()}</div>
         <label for="fNote">備考（金額などもここに）</label>
         <textarea id="fNote" rows="2">${esc(f.note)}</textarea>
+        ${ui.dupFor && !ed ? dupBoxHTML() : ''}
         <p><button type="button" class="primary" data-act="save">${ed ? '保存する' : '登録する'}</button></p>
         ${ed ? `<div class="row"><button type="button" data-act="cancel">やめる</button><button type="button" class="danger" data-act="del">削除</button></div>` : ''}
+      </div>`;
+  }
+
+  function dupBoxHTML() {
+    const d = st().items.find((x) => x.id === ui.dupFor);
+    if (!d) return '';
+    return `<div class="alert" id="dupBox">
+        同じ購入物が登録済みです：${esc(d.item)} 計${L.totalQty(d)}（依頼：${esc(L.formatRequests(d, st().members, '、')) || '—'}／請負：${d.assignee ? esc(mname(d.assignee)) : '未定'}）
+        <div class="row" style="margin-top:8px">
+          <button type="button" data-act="edit" data-id="${d.id}">登録済みを直す</button>
+          <button type="button" data-act="dupAdd">別に登録する</button>
+        </div>
       </div>`;
   }
 
@@ -525,6 +548,8 @@
   function resetForm() {
     ui.editing = null;
     ui.form = newForm();
+    ui.dupFor = null;
+    ui.dupOk = null;
   }
 
   function save() {
@@ -561,6 +586,14 @@
       }
       toast('保存しました');
     } else {
+      // 同じ場所・同じ購入物が既にあれば、登録の前に確かめる
+      const same = L.findSame(st().items, { day: t.day, kind: t.kind, circle_no: t.circle_no, item: f.item.trim() });
+      if (same && ui.dupOk !== same.id) {
+        ui.dupFor = same.id;
+        renderForm(t);
+        $('#dupBox').scrollIntoView && $('#dupBox').scrollIntoView({ block: 'center' });
+        return toast('同じ購入物が登録済みです');
+      }
       const requests = {};
       for (const [id, q] of Object.entries(f.requests)) if (q > 0) requests[id] = q;
       S.addItem(
@@ -579,7 +612,16 @@
       );
       toast('登録しました');
     }
+    finishForm();
+  }
+
+  // 保存・やめる・削除の後。一覧から編集に来ていれば一覧へ戻る
+  function finishForm() {
     resetForm();
+    if (ui.returnTo) {
+      ui.tab = ui.returnTo;
+      ui.returnTo = null;
+    }
     render();
   }
 
@@ -619,12 +661,15 @@
       .filter((i) => ui.fDay === 'all' || i.day === ui.fDay)
       .filter((i) => ui.fKind === 'all' || i.kind === ui.fKind)
       .filter((i) => ui.fMember === 'all' || i.assignee === ui.fMember || (i.requests || {})[ui.fMember] > 0)
+      .filter((i) => !ui.onlyUnassigned || !i.assignee)
       .sort(L.compareItems);
   }
 
   function renderList() {
-    const items = filtered();
+    dupSet = L.findDuplicates(st().items);
     const unassigned = liveItems().filter((i) => !i.assignee).length;
+    if (!unassigned) ui.onlyUnassigned = false;
+    const items = filtered();
     let body = '';
     if (ui.listMode === 'assignee') {
       for (const g of [null, ...members().map((m) => m.id)]) {
@@ -647,7 +692,8 @@
 
     const deleted = st().items.filter((i) => i.deleted);
     view.innerHTML = `
-      ${unassigned ? `<div class="alert">請負人が未定：${unassigned} 件</div>` : liveItems().length ? `<div class="okmsg">全件の請負人が決まりました</div>` : ''}
+      ${unassigned ? `<div class="alert row"><span>請負人が未定：${unassigned} 件</span><button type="button" class="small" data-act="onlyUnassigned" style="flex:0 0 auto">${ui.onlyUnassigned ? 'すべて表示' : '未定だけ表示'}</button></div>` : liveItems().length ? `<div class="okmsg">全件の請負人が決まりました</div>` : ''}
+      ${dupSet.size ? `<div class="alert">重複の疑い：${dupSet.size} 件（「重複?」の印）。片方を削除するか、まとめてください</div>` : ''}
       <div class="seg">
         <button type="button" data-act="mode" data-mode="assignee" class="${ui.listMode === 'assignee' ? 'on' : ''}">請負人ごと</button>
         <button type="button" data-act="mode" data-mode="requester" class="${ui.listMode === 'requester' ? 'on' : ''}">依頼人ごと</button>
@@ -669,33 +715,59 @@
     return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
   }
 
+  function exMember() {
+    const ok = (id) => id && st().members.some((m) => m.id === id);
+    if (!ok(ui.exMember)) ui.exMember = ok(me) ? me : (members()[0] || {}).id;
+    return ui.exMember;
+  }
+
   function renderExport() {
     const n = liveItems().length;
-    const text = L.toText(st().items, st().members);
+    const mid = exMember();
+    const rep = L.memberReport(st().items, st().members, mid);
+    const text = L.toMemberText(st().items, st().members, mid);
     view.innerHTML = `
       <section class="card">
-        <h2>出力（${n} 件）</h2>
-        <p class="muted">公開が終わるとツールから取り出せません。会議の終わりに各自で保存してください。</p>
-        ${EMBED ? '' : `<p><button type="button" class="primary" data-act="csv">CSV をダウンロード</button></p>`}
+        <h2>参加者ごとの確認</h2>
+        <p class="muted">誰に何を依頼したか、誰から何を依頼されたかを、1 人ずつ出します。会議の最後に各自で保存してください。公開が終わると取り出せません。</p>
+        <label for="exMember">参加者</label>
+        <select id="exMember">${members().map((m) => `<option value="${m.id}" ${m.id === mid ? 'selected' : ''}>${esc(m.name)}${m.id === me ? '（自分）' : ''}</option>`).join('')}</select>
+        <p>依頼した：<strong>${rep.requested.length}</strong> 件（うち請負人未定 ${rep.requested.filter((r) => !r.to).length} 件）／依頼された：<strong>${rep.assigned.length}</strong> 件・計 ${rep.assigned.reduce((a, r) => a + r.qty, 0)} 点</p>
+        ${EMBED ? '' : `<p><button type="button" class="primary" data-act="mCsv">${esc(mname(mid))} の CSV をダウンロード</button></p>
+        <p class="hint">ファイル名：${esc(memberFileName(mid))}</p>`}
         <div class="row">
-          <button type="button" class="${EMBED ? 'primary' : ''}" data-act="copy">テキストをコピー</button>
-          <button type="button" data-act="copyCsv">CSV をコピー</button>
-          ${EMBED ? '' : `<button type="button" data-act="print">印刷用に表示</button>`}
+          <button type="button" class="${EMBED ? 'primary' : ''}" data-act="mCopyText">テキストをコピー</button>
+          <button type="button" data-act="mCopyCsv">CSV をコピー</button>
         </div>
-        ${EMBED ? `<p class="hint">お試し版ではファイルの保存と印刷はできません。「CSV をコピー」して、メモ帳やスプレッドシートに貼り付けてください。</p>` : ''}
+        ${EMBED ? `<p class="hint">お試し版ではファイルの保存ができません。「CSV をコピー」して、メモ帳やスプレッドシートに貼り付けてください。</p>` : ''}
       </section>
       <section class="card">
-        <h2>コピーする内容</h2>
+        <h2>内容（${esc(mname(mid))}）</h2>
         <textarea id="exText" rows="14" readonly>${esc(text)}</textarea>
+      </section>
+      <section class="card">
+        <h2>全体（${n} 件）</h2>
+        <div class="row">
+          ${EMBED ? '' : `<button type="button" data-act="csv">全体の CSV をダウンロード</button>`}
+          <button type="button" data-act="copyCsv">全体の CSV をコピー</button>
+          <button type="button" data-act="copyAllText">全体のテキストをコピー</button>
+          ${EMBED ? '' : `<button type="button" data-act="print">印刷用に表示</button>`}
+        </div>
       </section>`;
   }
 
-  function downloadCSV() {
-    const csv = '﻿' + L.toCSV(st().items, st().members);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  // ファイル名は英数字だけにする。日本語の名前を入れると、この開発環境のブラウザでは名前が「download」に変わったため。
+  // 誰の分かは登録順の番号で分ける（例: 1 番目のメンバー → member01）
+  function memberFileName(id) {
+    const k = members().findIndex((m) => m.id === id) + 1;
+    return `comiket-buntan-member${String(k).padStart(2, '0')}-${fileStamp()}.csv`;
+  }
+
+  function downloadFile(text, filename) {
+    const blob = new Blob(['\ufeff' + text], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `comiket-buntan-${fileStamp()}.csv`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -861,14 +933,26 @@
       case 'save':
         return save();
       case 'cancel':
-        resetForm();
-        return renderInput();
+        return finishForm();
       case 'del':
         if (!armed(b, 'もう一度押すと削除')) return;
         S.setDeleted(ui.editing.id, true, me);
-        resetForm();
-        toast('削除しました');
+        toast('削除しました（一覧の「削除済み」から戻せます）');
+        return finishForm();
+      case 'delQuick':
+        // 「ここの登録済み」や一覧から直接削除（2 回押し）
+        e.stopPropagation();
+        if (!armed(b, 'もう一度押すと削除')) return;
+        S.setDeleted(id, true, me);
+        toast('削除しました（一覧の「削除済み」から戻せます）');
         return render();
+      case 'dupAdd':
+        ui.dupOk = ui.dupFor;
+        ui.dupFor = null;
+        return save();
+      case 'onlyUnassigned':
+        ui.onlyUnassigned = !ui.onlyUnassigned;
+        return renderList();
       case 'restore':
         S.setDeleted(id, false, me);
         toast('元に戻しました');
@@ -880,16 +964,25 @@
         return updateLookup();
       }
       case 'edit':
+        // 一覧から開いたときは、保存後に一覧へ戻る。入力画面の中（重複の確認など）からならそのまま
+        if (ui.tab === 'list') ui.returnTo = 'list';
+        ui.dupFor = null;
         return openEdit(id);
       case 'mode':
         ui.listMode = b.dataset.mode;
         return renderList();
       case 'csv':
-        return downloadCSV();
-      case 'copy':
-        return copyText($('#exText').value, 'テキスト');
+        return downloadFile(L.toCSV(st().items, st().members), `comiket-buntan-all-${fileStamp()}.csv`);
       case 'copyCsv':
-        return copyText(L.toCSV(st().items, st().members), 'CSV');
+        return copyText(L.toCSV(st().items, st().members), '全体の CSV ');
+      case 'copyAllText':
+        return copyText(L.toText(st().items, st().members), '全体のテキスト');
+      case 'mCsv':
+        return downloadFile(L.toMemberCSV(st().items, st().members, exMember()), memberFileName(exMember()));
+      case 'mCopyCsv':
+        return copyText(L.toMemberCSV(st().items, st().members, exMember()), `${mname(exMember())} の CSV `);
+      case 'mCopyText':
+        return copyText(L.toMemberText(st().items, st().members, exMember()), `${mname(exMember())} のテキスト`);
       case 'print':
         return printView();
       case 'daysSave': {
@@ -973,6 +1066,10 @@
     if (m) {
       $(`#${m[1]}DayPreview`).textContent = readDaysPicker(m[1]).map(L.dayLabel).join('・');
       return;
+    }
+    if (id === 'exMember') {
+      ui.exMember = e.target.value;
+      return renderExport();
     }
     if (id === 'fDay' || id === 'fKind' || id === 'fMember') {
       ui[id] = e.target.value;

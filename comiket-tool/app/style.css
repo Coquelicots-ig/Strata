@@ -208,3 +208,4 @@ button:disabled { opacity: .5; }
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 @media (prefers-reduced-motion: reduce) { .slot { scroll-behavior: auto; } }
+.badge.warnb { background: var(--warn-soft); color: var(--warn); font-weight: 700; }

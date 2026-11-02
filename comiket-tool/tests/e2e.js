@@ -173,6 +173,9 @@ async function shot(page, name) {
   await p1.click('#asgBlock button:has-text("Aさん")');
   await p1.click('[data-act=save]');
   assert.match(await p1.textContent('#toast'), /保存しました/);
+  // 一覧から編集に来たので、保存後は一覧に戻る
+  assert.equal(await p1.getAttribute('#tabs [data-tab=list]', 'class'), 'on');
+  await p1.click('#tabs [data-tab=input]');
 
   // 依頼人の個数はキーごとの更新：A さんの編集中に B さんが加わっても消えない
   await space(p1, '南', '99', 'a');
@@ -232,6 +235,48 @@ async function shot(page, name) {
   await p1.click('#tabs [data-tab=list]');
   assert.match(await p1.textContent('.alert'), /未定：1 件/);
   assert.equal(await p1.locator('.item.tap').count(), 10);
+
+  // ---- 会議の流れ：重複・訂正・未定の後回し・参加者ごとの出力 ----
+  await p1.click('#tabs [data-tab=input]');
+  await p1.click('[data-act=day][data-day="金"]');
+  await space(p1, '東', '1', 'a', 'A');
+  await p1.fill('#fItem', '新刊セット'); // デモに同じ物がある
+  await plus(p1, 3); // Dさん
+  await p1.click('[data-act=save]');
+  assert.match(await p1.textContent('#dupBox'), /同じ購入物が登録済みです/);
+  assert.equal(await p1.locator('#existing .item').count(), 2); // まだ登録されていない
+  await p1.click('[data-act=dupAdd]');
+  assert.equal(await p1.locator('#existing .item').count(), 3);
+  assert.equal(await p1.locator('#existing .badge.warnb').count(), 2);
+  // 「ここの登録済み」から片方を削除（2 回押し）
+  const dupDel = p1.locator('#existing .item:has(.badge.warnb) [data-act=delQuick]').last();
+  await dupDel.click();
+  await dupDel.click();
+  assert.equal(await p1.locator('#existing .item').count(), 2);
+  assert.equal(await p1.locator('#existing .badge.warnb').count(), 0);
+
+  // 未定を後回しにして、一覧から決める。保存したら一覧に戻る
+  await p1.click('#tabs [data-tab=list]');
+  await p1.click('[data-act=onlyUnassigned]');
+  assert.equal(await p1.locator('.item.tap').count(), 1);
+  await p1.click('.item.tap');
+  await p1.click('#asgBlock button:has-text("Bさん")');
+  await p1.click('[data-act=save]');
+  assert.equal(await p1.getAttribute('#tabs [data-tab=list]', 'class'), 'on');
+  assert.match(await p1.textContent('.okmsg'), /全件の請負人が決まりました/);
+
+  // 参加者ごとの出力（Aさん）
+  await p1.click('#tabs [data-tab=export]');
+  assert.match(await p1.inputValue('#exText'), /■ Aさん さん/);
+  assert.match(await p1.inputValue('#exText'), /【依頼したもの】/);
+  const [mdl] = await Promise.all([p1.waitForEvent('download'), p1.click('[data-act=mCsv]')]);
+  assert.match(mdl.suggestedFilename(), /^comiket-buntan-member01-\d{8}-\d{4}\.csv$/);
+  const mcsv = fs.readFileSync(await mdl.path(), 'utf8');
+  assert.ok(mcsv.startsWith('﻿区分,曜日,種別,サークル番号,サークル名,購入物,個数,相手,内訳,備考'));
+  assert.ok(mcsv.includes('依頼された,'), mcsv);
+  // 別の参加者に切り替え
+  await p1.selectOption('#exMember', { label: 'Eさん' });
+  assert.match(await p1.inputValue('#exText'), /■ Eさん さん/);
 
   // 横にはみ出していないこと
   const overflow = await p1.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

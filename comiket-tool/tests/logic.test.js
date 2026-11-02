@@ -103,3 +103,37 @@ test('ブロックの並び：大文字・小文字・ひらがな・カタカ�
   assert.deepEqual(L.blockGroups(idx, '金', '西'), [['b'], ['あ']]);
   assert.deepEqual(L.blockGroups(idx, '土', '南'), [['f']]);
 });
+
+test('重複：同じ場所・同じ購入物（表記ゆれは無視）', () => {
+  const base = { day: '金', kind: 'circle', circle_no: '東A01a', circle_name: 'Z', requests: { a: 1 }, assignee: null, note: '', deleted: false };
+  const list = [
+    { ...base, id: 'x', item: '新刊' },
+    { ...base, id: 'y', item: ' 新刊 ' },
+    { ...base, id: 'z', item: '既刊' },
+    { ...base, id: 'w', item: '新刊', day: '土' },
+    { ...base, id: 'd', item: '新刊', deleted: true },
+  ];
+  assert.deepEqual([...L.findDuplicates(list)].sort(), ['x', 'y']);
+  assert.equal(L.findSame(list, { day: '金', kind: 'circle', circle_no: '東A01a', item: 'しんかん' }), null);
+  assert.equal(L.findSame(list, { day: '金', kind: 'circle', circle_no: '東A01a', item: 'ＮＥＷ' }), null);
+  assert.equal(L.findSame(list, { day: '金', kind: 'circle', circle_no: '東A01a', item: '既刊' }).id, 'z');
+});
+
+test('参加者ごと：依頼したもの・依頼されたもの', () => {
+  const rep = L.memberReport(items, members, 'a');
+  // a は 3 件を依頼（東C07a は請負人未定）、1 件を請け負う（東A01a）
+  assert.deepEqual(rep.requested.map((r) => [r.item.id, r.qty, r.to]), [['1', 1, 'c'], ['2', 1, null]]);
+  assert.deepEqual(rep.assigned.map((r) => [r.item.id, r.qty]), [['0', 1]]);
+  const csv = L.toMemberCSV(items, members, 'a').trim().split('\r\n');
+  assert.equal(csv[0], '区分,曜日,種別,サークル番号,サークル名,購入物,個数,相手,内訳,備考');
+  assert.equal(csv[1], '依頼した,金,企業,企業101,Y,"グッズ, ""限定""",1,Cさん,,1000円');
+  assert.equal(csv[2], '依頼した,土,サークル,東C07a,X,新刊,1,未定,,');
+  assert.equal(csv[3], '依頼された,金,サークル,東A01a,Z,本,1,Cさん,Cさん×1,');
+  assert.equal(csv.length, 4);
+  // 自分で依頼して自分で買う場合は、相手が「自分」
+  const self = [{ ...items[2], requests: { a: 2 }, assignee: 'a' }];
+  assert.equal(L.toMemberCSV(self, members, 'a').trim().split('\r\n')[1], '依頼した,金,サークル,東A01a,Z,本,2,自分,,');
+  const t = L.toMemberText(items, members, 'a');
+  assert.match(t, /【依頼したもの】2 件/);
+  assert.match(t, /【依頼されたもの（買う物）】1 件/);
+});
