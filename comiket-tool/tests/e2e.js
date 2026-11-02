@@ -23,12 +23,30 @@ function serve() {
   return new Promise((r) => srv.listen(0, '127.0.0.1', () => r(srv)));
 }
 
-// ホールと a/b をタップし、数字を入れる。ブロック違いの候補が出たら pick のブロックを選ぶ
+// ブロックを「指定なし」にしてホールと a/b をタップし、数字を入れる。ブロック違いの候補が出たら pick のブロックを選ぶ
 async function space(page, hall, num, ab, pick) {
+  await page.click('#slot [data-slot="0"]');
   await page.click(`[data-act=hall][data-hall="${hall}"]`);
   await page.click(`[data-act=ab][data-ab="${ab}"]`);
   await page.fill('#numInput', num);
   if (pick) await page.click(`#lookup [data-act=block][data-block="${pick}"]`);
+}
+
+// スロットの中で hall・block の行をタップする（block が null なら「指定なし」）
+async function pickBlock(page, hall, block) {
+  const k = await page.evaluate(
+    ([h, b]) =>
+      [...document.querySelectorAll('#slot .slot-item')].findIndex((el) =>
+        b == null ? el.classList.contains('none') : el.querySelector('.sh')?.textContent === h && el.querySelector('.sb')?.textContent === b,
+      ),
+    [hall, block],
+  );
+  assert.ok(k >= 0, `スロットに ${hall} ${block} がありません`);
+  await page.click(`#slot [data-slot="${k}"]`);
+}
+
+async function selectedSlot(page) {
+  return (await page.textContent('#slot .slot-item.on')).replace(/\s+/g, '');
 }
 
 async function plus(page, nth) {
@@ -76,18 +94,23 @@ async function shot(page, name) {
   assert.equal(await p1.inputValue('#fItem'), '新刊'); // 登録後も新刊に戻る
 
   // 選んだブロック A は残るので、数字と b だけで東A01b が出る
-  assert.equal((await p1.textContent('#blocks')).trim().startsWith('A'), true); // 一覧は畳まれ、A だけが出る
-  assert.equal(await p1.locator('#blocks [data-act=block]').count(), 0);
+  assert.equal(await selectedSlot(p1), '東A');
   await p1.click('[data-act=ab][data-ab="b"]');
   assert.match(await p1.textContent('#lookup .found'), /ダミーサークル弐/);
   // ブロック ア を選んで 3 と打つ
   await p1.click('[data-act=ab][data-ab="a"]');
-  await p1.click('#blocks button:has-text("変更")');
-  await p1.click('#blocks [data-block="ア"]');
+  await pickBlock(p1, '東', 'ア');
   await p1.fill('#numInput', '3');
   assert.match(await p1.textContent('#lookup .found'), /アブロック堂/);
-  await p1.click('#blocks button:has-text("変更")');
-  await p1.click('#blocks [data-block=""]');
+  // スロットを指で回したのと同じく、スクロールを止めた位置のブロックが選ばれ、ホールも変わる
+  const westA = await p1.evaluate(() => [...document.querySelectorAll('#slot .slot-item')].findIndex((el) => el.textContent.replace(/\s+/g, '') === '西あ'));
+  await p1.evaluate((k) => { document.querySelector('#slot').scrollTop = k * 48; }, westA);
+  await p1.waitForFunction(() => document.querySelector('#hallSeg .on')?.textContent === '西');
+  assert.equal(await selectedSlot(p1), '西あ');
+  // ブロックを選んでいる時にホールをタップすると、そのホールの最初のブロックへ回る
+  await p1.click('[data-act=hall][data-hall="南"]');
+  assert.equal(await selectedSlot(p1), '南c');
+  await pickBlock(p1, null, null);
 
   // 日曜
   await p1.click('[data-act=day][data-day="日"]');
@@ -137,7 +160,6 @@ async function shot(page, name) {
   await space(p2, '南', '99', 'a');
   await p2.click('[data-act=join]');
   // B さんが新刊セットの備考を変えて保存
-  await p2.click('[data-act=block][data-block=""]');
   await space(p2, '東', '1', 'a', 'A');
   await p2.click('#existing [data-act=edit]');
   await p2.fill('#fNote', '1000円・開場直後');
@@ -192,6 +214,15 @@ async function shot(page, name) {
   await p1.fill('#mNew', 'Dさん');
   await p1.click('[data-act=mAdd]');
   assert.equal(await p1.evaluate(() => window.Store.get().members.length), 4);
+
+  // 開催日は部屋ごとに変えられる（土曜から 3 日間 → 土・日・月）
+  await p1.selectOption('#dDayStart', '土');
+  await p1.selectOption('#dDayCount', '3');
+  assert.equal(await p1.textContent('#dDayPreview'), '土曜・日曜・月曜');
+  await p1.click('[data-act=daysSave]');
+  await p1.click('#tabs [data-tab=input]');
+  assert.deepEqual(await p1.locator('[data-act=day]').allTextContents(), ['土曜', '日曜', '月曜']);
+  await p1.click('#tabs [data-tab=settings]');
 
   // デモデータで始める
   await p1.click('[data-act=reset]');

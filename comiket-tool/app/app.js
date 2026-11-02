@@ -6,12 +6,23 @@
   const CAT = L.expandCatalog(window.COMIKET_CATALOG);
   const IDX = L.createIndex(CAT);
   const DEMO = window.COMIKET_DEMO || [];
-  // 開催日（曜日）の並び。catalog.js の COMIKET_DAYS、無ければカタログにある曜日を月〜日の順に
-  L.setDayOrder(window.COMIKET_DAYS);
-  const DAYS = (window.COMIKET_DAYS && window.COMIKET_DAYS.length ? window.COMIKET_DAYS.slice() : [...new Set(CAT.map((c) => c.day))]).sort(
-    (a, b) => L.dayRank(a) - L.dayRank(b),
-  );
-  if (!DAYS.length) DAYS.push('土');
+  // カタログにある開催日（曜日）の並び。部屋の開催日の初期値に使う
+  const WEEK = ['月', '火', '水', '木', '金', '土', '日'];
+  const CATALOG_DAYS = (() => {
+    if (window.COMIKET_DAYS && window.COMIKET_DAYS.length) return window.COMIKET_DAYS.slice();
+    const found = [...new Set(CAT.map((c) => c.day))].sort((a, b) => WEEK.indexOf(a) - WEEK.indexOf(b));
+    return found.length ? found : ['土', '日'];
+  })();
+  // 初日の曜日と日数から、続いた曜日の並びを作る（例: 金・3 → 金土日、日・2 → 日月）
+  function consecutiveDays(start, count) {
+    const k = WEEK.indexOf(start);
+    return Array.from({ length: count }, (_, n) => WEEK[(k + n) % 7]);
+  }
+  // 開催日は部屋ごとに決める。回によって日数が違うため
+  function getDays() {
+    const room = st().room;
+    return room && Array.isArray(room.days) && room.days.length ? room.days : CATALOG_DAYS;
+  }
   const ME_KEY = 'comiket-tool-p1-v2-me';
   const MAX_MEMBERS = 10;
   // 1 つの HTML にまとめてブラウザ内のページとして開く版では、ダウンロードと印刷が使えないので隠す
@@ -39,13 +50,12 @@
 
   const ui = {
     tab: 'input',
-    day: DAYS[0],
+    day: CATALOG_DAYS[0],
     kind: 'circle',
     hall: '東',
     ab: 'a',
     num: '', // 数字だけ（企業ブースも数字だけ）
     block: null, // 選んだブロック。null は「指定なし」。登録後も残す
-    blockOpen: false, // ブロックを選んだ後で一覧を開き直しているか
     manualBlock: '',
     manualName: '',
     editing: null, // { id, version, origRequests }
@@ -147,6 +157,9 @@
       return renderWho();
     }
     tabs.hidden = false;
+    const days = getDays();
+    L.setDayOrder(days);
+    if (!days.includes(ui.day)) ui.day = days[0];
     tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.tab === ui.tab));
     if (ui.tab === 'input') renderInput();
     else if (ui.tab === 'list') renderList();
@@ -165,6 +178,7 @@
         <input type="text" id="sName" value="コミケ買い出し会議">
         <label for="sMembers">メンバー（1 行に 1 人、最大 ${MAX_MEMBERS} 人。進行役も含める）</label>
         <textarea id="sMembers" rows="6" placeholder="Aさん&#10;Bさん&#10;Cさん"></textarea>
+        ${daysPickerHTML('s', CATALOG_DAYS)}
         <label for="sFrom">公開の開始</label>
         <input type="datetime-local" id="sFrom" value="${toLocalInput(w.open_from)}">
         <label for="sUntil">公開の終了</label>
@@ -189,7 +203,7 @@
     if (from == null || until == null) return toast('公開の開始と終了を入れてください');
     if (until <= from) return toast('終了は開始より後にしてください');
     setMe(null);
-    S.createRoom({ name, open_from: from, open_until: until }, names);
+    S.createRoom({ name, open_from: from, open_until: until, days: readDaysPicker('s') }, names);
     render();
   }
 
@@ -198,7 +212,7 @@
     const w = defaultWindow();
     const now = Date.now();
     // デモは今すぐ使えるよう、今から 4 時間を公開時間にする
-    S.createRoom({ name: 'デモ：コミケ買い出し会議', open_from: Math.min(w.open_from, now), open_until: Math.max(w.open_until, now + 4 * 3600 * 1000) }, names);
+    S.createRoom({ name: 'デモ：コミケ買い出し会議', days: CATALOG_DAYS.slice(), open_from: Math.min(w.open_from, now), open_until: Math.max(w.open_until, now + 4 * 3600 * 1000) }, names);
     const byName = Object.fromEntries(st().members.map((m) => [m.name, m.id]));
     for (const d of DEMO) {
       const requests = {};
@@ -221,6 +235,20 @@
     }
     setMe(null);
     render();
+  }
+
+  // 開催日の選び方：初日の曜日と日数（コミケは回によって 2 日や 3 日になる）
+  function daysPickerHTML(prefix, days) {
+    return `
+        <label for="${prefix}DayStart">開催日：初日の曜日と日数</label>
+        <div class="row">
+          <select id="${prefix}DayStart">${WEEK.map((w) => `<option value="${w}" ${w === days[0] ? 'selected' : ''}>${w}曜から</option>`).join('')}</select>
+          <select id="${prefix}DayCount">${[1, 2, 3, 4].map((n) => `<option value="${n}" ${n === days.length ? 'selected' : ''}>${n} 日間</option>`).join('')}</select>
+        </div>
+        <p class="hint" id="${prefix}DayPreview">${days.map(L.dayLabel).join('・')}</p>`;
+  }
+  function readDaysPicker(prefix) {
+    return consecutiveDays($(`#${prefix}DayStart`).value, Number($(`#${prefix}DayCount`).value));
   }
 
   // ---- 自分を選ぶ ----
@@ -266,26 +294,85 @@
       .join('')}</div>`;
   }
 
-  function currentBlocks() {
-    const groups = L.blockGroups(IDX, ui.day, ui.hall);
+  // ---- ブロックのスロット ----
+  // その日のホールとブロックを 1 本の縦のスロットに並べる。止まった所（真ん中）が選ばれ、ホールも決まる。
+  const SLOT_H = 48; // 1 行の高さ(px)。style.css の .slot-item と合わせる
+
+  function slotItems() {
+    const items = [{ hall: null, block: null }];
+    for (const h of L.HALLS) for (const g of L.blockGroups(IDX, ui.day, h)) for (const b of g) items.push({ hall: h, block: b });
     // 編集中の購入物のブロックがカタログに無い場合も選べるように足す
-    if (ui.block != null && !groups.some((g) => g.includes(ui.block))) groups.push([ui.block]);
-    return groups;
+    if (ui.block != null && !items.some((x) => x.hall === ui.hall && x.block === ui.block)) items.push({ hall: ui.hall, block: ui.block });
+    return items;
+  }
+  let slotList = [];
+
+  function slotIndex() {
+    if (ui.block == null) return 0;
+    const k = slotList.findIndex((x) => x.hall === ui.hall && x.block === ui.block);
+    return k < 0 ? 0 : k;
   }
 
-  function blocksHTML() {
-    // ブロックを選んだら一覧を畳み、番号欄を画面の上のほうに保つ
-    if (ui.block != null && !ui.blockOpen) {
-      return `<div class="brow"><button type="button" data-act="blockOpen" class="on" aria-label="ブロック ${esc(ui.block)}。タップで変更">${esc(ui.block)}</button><button type="button" data-act="blockOpen" class="small">変更</button></div>`;
-    }
-    const chip = (b, label) =>
-      `<button type="button" data-act="block" data-block="${esc(b)}" class="${(ui.block == null ? '' : ui.block) === b ? 'on' : ''}">${esc(label || b)}</button>`;
-    return `<div class="brow">${chip('', '指定なし')}</div>${currentBlocks()
-      .map((g) => `<div class="brow">${g.map((b) => chip(b)).join('')}</div>`)
-      .join('')}`;
+  function slotHTML() {
+    slotList = slotItems();
+    return `<div class="slotwrap">
+      <div class="slot" id="slot" role="listbox" aria-label="ブロック" tabindex="0">
+        <div class="slot-pad"></div>
+        ${slotList
+          .map((x, k) =>
+            x.block == null
+              ? `<div class="slot-item none" role="option" data-act="slot" data-slot="${k}">指定なし</div>`
+              : `<div class="slot-item" role="option" data-act="slot" data-slot="${k}"><span class="sh">${esc(x.hall)}</span><span class="sb">${esc(x.block)}</span></div>`,
+          )
+          .join('')}
+        <div class="slot-pad"></div>
+      </div>
+      <div class="slot-band" aria-hidden="true"></div>
+    </div>`;
   }
 
-  // 日やホールを変えたとき、そこに無いブロックの選択は外す
+  function markSlot() {
+    const k = slotIndex();
+    document.querySelectorAll('#slot .slot-item').forEach((el) => {
+      const on = Number(el.dataset.slot) === k;
+      el.classList.toggle('on', on);
+      el.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+  }
+
+  // スロットを今の選択の位置まで回す（smooth=false はすぐに）
+  function scrollSlot(smooth) {
+    const el = $('#slot');
+    if (!el) return;
+    const top = slotIndex() * SLOT_H;
+    if (smooth && el.scrollTo) el.scrollTo({ top, behavior: 'smooth' });
+    else el.scrollTop = top;
+    markSlot();
+  }
+
+  // スロットで k 番目を選んだとき
+  function chooseSlot(k) {
+    const x = slotList[k];
+    // 止まるのを待つ間に別の画面へ移っていたら何もしない
+    if (!x || !$('#slot') || !$('#hallSeg')) return;
+    if (x.block === ui.block && (x.hall == null || x.hall === ui.hall)) return markSlot();
+    syncText();
+    ui.block = x.block;
+    if (x.hall) ui.hall = x.hall;
+    markSlot();
+    $('#hallSeg').innerHTML = segHTML('hall', 'hall', L.HALLS, ui.hall);
+    updateLookup();
+  }
+
+  let slotTimer = null;
+  function onSlotScroll(e) {
+    if (e.target.id !== 'slot') return;
+    clearTimeout(slotTimer);
+    // 指を離して止まってから選ぶ
+    slotTimer = setTimeout(() => chooseSlot(Math.round(e.target.scrollTop / SLOT_H)), 120);
+  }
+
+  // 日を変えたとき、その日に無いブロックの選択は外す
   function dropMissingBlock() {
     if (ui.block != null && !L.blockGroups(IDX, ui.day, ui.hall).some((g) => g.includes(ui.block))) ui.block = null;
   }
@@ -295,9 +382,13 @@
     const circle = ui.kind === 'circle';
     view.innerHTML = `
       <section class="card">
-        ${segHTML('day', 'day', DAYS, ui.day, DAYS.map(L.dayLabel))}
+        ${segHTML('day', 'day', getDays(), ui.day, getDays().map(L.dayLabel))}
         ${segHTML('kind', 'kind', ['circle', 'corporate'], ui.kind, ['サークル', '企業'])}
-        ${circle ? `<label>ホール</label>${segHTML('hall', 'hall', L.HALLS, ui.hall)}<label>ブロック</label><div id="blocks">${blocksHTML()}</div>` : ''}
+        ${circle ? `<label>ホール・ブロック（スロットを回して選ぶ）</label>
+        <div class="hallblock">
+          <div id="hallSeg" class="hallcol">${segHTML('hall', 'hall', L.HALLS, ui.hall)}</div>
+          ${slotHTML()}
+        </div>` : ''}
         <label for="numInput">${circle ? '番号（数字だけ）と a / b' : '企業ブース番号（数字だけ）'}</label>
         <div class="numrow">
           <input type="text" id="numInput" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
@@ -308,6 +399,10 @@
       </section>
       <section id="existing"></section>
       <section id="formArea"></section>`;
+    if (circle) {
+      scrollSlot(false);
+      $('#slot').addEventListener('scroll', onSlotScroll, { passive: true });
+    }
     updateLookup();
   }
 
@@ -559,7 +654,7 @@
         <button type="button" data-act="mode" data-mode="order" class="${ui.listMode === 'order' ? 'on' : ''}">日・番号順</button>
       </div>
       <div class="filters">
-        <select id="fDay" aria-label="曜日">${['all', ...DAYS].map((d) => `<option value="${d}" ${ui.fDay === d ? 'selected' : ''}>${d === 'all' ? '全曜日' : L.dayLabel(d)}</option>`).join('')}</select>
+        <select id="fDay" aria-label="曜日">${['all', ...getDays()].map((d) => `<option value="${d}" ${ui.fDay === d ? 'selected' : ''}>${d === 'all' ? '全曜日' : L.dayLabel(d)}</option>`).join('')}</select>
         <select id="fKind" aria-label="種別">${[['all', '全種別'], ['circle', 'サークル'], ['corporate', '企業']].map(([v, n]) => `<option value="${v}" ${ui.fKind === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
         <select id="fMember" aria-label="メンバー"><option value="all">全員</option>${members().map((m) => `<option value="${m.id}" ${ui.fMember === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
       </div>
@@ -643,6 +738,11 @@
     const ms = members();
     view.innerHTML = `
       <section class="card">
+        <h2>開催日</h2>
+        ${daysPickerHTML('d', getDays())}
+        <button type="button" data-act="daysSave">開催日を保存</button>
+      </section>
+      <section class="card">
         <h2>公開時間帯</h2>
         <label for="wFrom">開始</label>
         <input type="datetime-local" id="wFrom" value="${toLocalInput(room.open_from)}">
@@ -712,13 +812,24 @@
         resetForm();
         return render();
       case 'day':
-      case 'hall':
       case 'ab':
         syncText();
         if (act === 'day') ui.day = b.dataset.day;
-        else ui[act] = b.dataset[act];
+        else ui.ab = b.dataset.ab;
         dropMissingBlock();
         return renderInput();
+      case 'hall': {
+        // ブロックを選んでいれば、スロットをそのホールの最初のブロックまで回す。指定なしならホールだけ変える
+        syncText();
+        ui.hall = b.dataset.hall;
+        if (ui.block != null) {
+          const first = slotList.find((x) => x.hall === ui.hall);
+          ui.block = first ? first.block : null;
+        }
+        $('#hallSeg').innerHTML = segHTML('hall', 'hall', L.HALLS, ui.hall);
+        scrollSlot(true);
+        return updateLookup();
+      }
       case 'kind':
         syncText();
         ui.kind = b.dataset.kind;
@@ -726,15 +837,14 @@
         ui.manualName = '';
         ui.manualBlock = '';
         return renderInput();
-      case 'blockOpen':
-        ui.blockOpen = true;
-        $('#blocks').innerHTML = blocksHTML();
-        return;
+      case 'slot':
+        chooseSlot(Number(b.dataset.slot));
+        return scrollSlot(true);
       case 'block':
+        // ブロック違いの候補から選んだとき。スロットもそこへ回す
         syncText();
         ui.block = b.dataset.block === '' ? null : b.dataset.block;
-        ui.blockOpen = false;
-        if ($('#blocks')) $('#blocks').innerHTML = blocksHTML();
+        scrollSlot(true);
         return updateLookup();
       case 'qty': {
         syncText();
@@ -782,6 +892,12 @@
         return copyText(L.toCSV(st().items, st().members), 'CSV');
       case 'print':
         return printView();
+      case 'daysSave': {
+        const days = readDaysPicker('d');
+        S.updateRoom({ days });
+        toast(`開催日：${days.map(L.dayLabel).join('・')}`);
+        return render();
+      }
       case 'wSave':
         return saveWindow(fromLocalInput($('#wFrom').value), fromLocalInput($('#wUntil').value));
       case 'wOpen': {
@@ -853,6 +969,11 @@
 
   view.addEventListener('change', (e) => {
     const id = e.target.id;
+    const m = id.match(/^(s|d)Day(Start|Count)$/);
+    if (m) {
+      $(`#${m[1]}DayPreview`).textContent = readDaysPicker(m[1]).map(L.dayLabel).join('・');
+      return;
+    }
     if (id === 'fDay' || id === 'fKind' || id === 'fMember') {
       ui[id] = e.target.value;
       renderList();

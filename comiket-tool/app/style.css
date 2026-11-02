@@ -175,7 +175,36 @@ button:disabled { opacity: .5; }
 .numrow .seg button { min-width: 52px; }
 .cands button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
 
-#blocks { display: flex; flex-direction: column; gap: 4px; }
-.brow { display: flex; flex-wrap: wrap; gap: 4px; }
-.brow button { min-width: 40px; min-height: 40px; padding: 4px 6px; font-size: 16px; }
-.brow button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 700; }
+/* ホールの列とブロックのスロットを横に並べる */
+.hallblock { display: flex; gap: 10px; align-items: stretch; }
+.hallcol { flex: 0 0 72px; }
+.hallcol .seg { flex-direction: column; height: 100%; margin: 0; }
+.hallcol .seg button { flex: 1; margin: -1px 0 0; border-radius: 0; }
+.hallcol .seg button:first-child { border-radius: 10px 10px 0 0; margin-top: 0; }
+.hallcol .seg button:last-child { border-radius: 0 0 10px 10px; }
+.slotwrap { position: relative; flex: 1 1 auto; min-width: 0; }
+.slot {
+  height: 144px; /* 3 行ぶん。SLOT_H(48px) × 3 */
+  overflow-y: auto; scroll-snap-type: y mandatory; overscroll-behavior: contain;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+  scrollbar-width: none;
+}
+.slot::-webkit-scrollbar { display: none; }
+.slot:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.slot-pad { height: 48px; }
+.slot-item {
+  height: 48px; scroll-snap-align: center; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  color: var(--muted); font-size: 18px; user-select: none;
+}
+.slot-item .sh { font-size: 13px; }
+.slot-item .sb { font-size: 24px; font-weight: 700; min-width: 1.5em; text-align: center; }
+.slot-item.none { font-size: 15px; }
+.slot-item.on { color: var(--text); }
+.slot-item.on .sb { color: var(--accent); }
+.slot-band {
+  position: absolute; left: 0; right: 0; top: 48px; height: 48px; pointer-events: none;
+  border-top: 2px solid var(--accent); border-bottom: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+@media (prefers-reduced-motion: reduce) { .slot { scroll-behavior: auto; } }
