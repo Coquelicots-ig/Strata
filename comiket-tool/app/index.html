@@ -25,6 +25,12 @@
 <script src="demo.js"></script>
 <script src="logic.js"></script>
 <script src="store.js"></script>
+<!-- Firestore 版（P2）。vendor/ は tools/build_hosting.py が npm の firebase から入れる。無ければこの端末だけの版で動く -->
+<script src="firebase-config.js"></script>
+<script src="vendor/firebase-app-compat.js"></script>
+<script src="vendor/firebase-auth-compat.js"></script>
+<script src="vendor/firebase-firestore-compat.js"></script>
+<script src="store-firestore.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

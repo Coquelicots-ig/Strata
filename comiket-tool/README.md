@@ -1,5 +1,23 @@
 # コミケ買い物分担ツール
 
+**Firestore 版（P2・P3）**：`app/firebase-config.js` の Firebase プロジェクトにつながる。
+Firebase の部品（`app/vendor/`）が無いときは、これまでどおり「この端末だけに保存」で動く。
+
+公開用フォルダ（dist/）を作って Firebase に載せる：
+
+```sh
+npm install firebase@12 firebase-tools@15          # 初回だけ
+python3 tools/build_hosting.py --firebase node_modules/firebase --catalog real-data/catalog.real.js
+npx firebase deploy --only hosting,firestore:rules --project comiketmtg
+```
+
+偽の Firebase（エミュレーター）で 2 台ぶん動かすテスト（本物のプロジェクトには触れない）：
+
+```sh
+python3 tools/build_hosting.py --firebase node_modules/firebase --out /tmp/dist
+npx firebase emulators:exec --only auth,firestore --project demo-comiket "node tests/e2e_cloud.js /tmp/dist"
+```
+
 設計は [BLUEPRINT.md](BLUEPRINT.md)。今は **P1（試作）**：データはその端末のブラウザにだけ保存し、他の端末とは同期しません。
 
 ## 試し方

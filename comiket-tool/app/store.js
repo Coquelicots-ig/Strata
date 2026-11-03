@@ -4,6 +4,7 @@
 (function () {
   'use strict';
   const KEY = 'comiket-tool-p1-v2'; // v2: 開催日を曜日で持つ
+  const ME_KEY = 'comiket-tool-p1-v2-me';
   const listeners = [];
 
   function empty() {
@@ -52,7 +53,28 @@
     }
   });
 
+  let me = null;
+  try {
+    me = localStorage.getItem(ME_KEY);
+  } catch (e) {}
+
   const Store = {
+    mode: 'local',
+    ready: () => Promise.resolve(),
+    status: () => 'ok',
+    onError() {},
+    deviceId: () => null,
+    isOwner: () => true, // この端末だけで使うときは、使う人が進行役
+    roomUrl: () => null,
+    getMe: () => me,
+    setMe(id) {
+      me = id;
+      try {
+        if (id) localStorage.setItem(ME_KEY, id);
+        else localStorage.removeItem(ME_KEY);
+      } catch (e) {}
+      emit();
+    },
     get: () => state,
     saveFailed: () => saveFailed,
     subscribe(f) {

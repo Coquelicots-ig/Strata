@@ -23,7 +23,6 @@
     const room = st().room;
     return room && Array.isArray(room.days) && room.days.length ? room.days : CATALOG_DAYS;
   }
-  const ME_KEY = 'comiket-tool-p1-v2-me';
   const MAX_MEMBERS = 10;
   // 1 つの HTML にまとめてブラウザ内のページとして開く版では、ダウンロードと印刷が使えないので隠す
   const EMBED = !!window.COMIKET_EMBED;
@@ -43,10 +42,9 @@
     return false;
   }
 
-  let me = null;
-  try {
-    me = localStorage.getItem(ME_KEY);
-  } catch (e) {}
+  // 自分（この端末を使う人）。この端末だけの版では端末に、Firestore 版では部屋のデータに記録する
+  let me = S.getMe();
+  const CLOUD = S.mode === 'cloud';
 
   const ui = {
     tab: 'input',
@@ -83,10 +81,7 @@
 
   function setMe(id) {
     me = id;
-    try {
-      if (id) localStorage.setItem(ME_KEY, id);
-      else localStorage.removeItem(ME_KEY);
-    } catch (e) {}
+    S.setMe(id);
   }
 
   let toastTimer = null;
@@ -153,6 +148,11 @@
     $('#roomName').textContent = room ? room.name : '買い物分担';
     renderBanner();
     const tabs = $('#tabs');
+    const status = S.status();
+    if (status !== 'ok' && status !== 'no-room') {
+      tabs.hidden = true;
+      return renderStatus(status);
+    }
     if (!room) {
       tabs.hidden = true;
       return renderSetup();
@@ -173,6 +173,19 @@
     if (S.saveFailed()) toast('この端末に保存できませんでした（プライベートブラウズ等）');
   }
 
+  // 接続中・時間外など、部屋を開けないとき
+  function renderStatus(status) {
+    const msg = {
+      loading: ['接続しています…', ''],
+      denied: [
+        '部屋を開けません',
+        '公開時間の外か、URL が違う可能性があります。公開時間になったら、このページを開き直してください。分からないときは進行役に確かめてください。',
+      ],
+      error: ['つながりませんでした', '通信の状態を確かめて、ページを開き直してください。'],
+    }[status] || ['読み込み中…', ''];
+    view.innerHTML = `<section class="card"><h2>${msg[0]}</h2>${msg[1] ? `<p class="muted">${msg[1]}</p>` : ''}</section>`;
+  }
+
   // ---- 部屋の作成 ----
   function renderSetup() {
     const w = defaultWindow();
@@ -191,11 +204,11 @@
         <p class="hint">時間帯は後から設定画面でいつでも変えられます。</p>
         <p><button type="button" class="primary" data-act="create">作成する</button></p>
       </section>
-      <section class="card">
+      ${CLOUD ? '' : `<section class="card">
         <h2>デモで試す</h2>
         <p class="muted">ダミーのメンバー（Aさん〜Eさん）と分担の例を入れて始めます。</p>
         <button type="button" data-act="demo">デモデータで始める</button>
-      </section>`;
+      </section>`}`;
   }
 
   function createRoom() {
@@ -208,8 +221,18 @@
     if (from == null || until == null) return toast('公開の開始と終了を入れてください');
     if (until <= from) return toast('終了は開始より後にしてください');
     setMe(null);
-    S.createRoom({ name, open_from: from, open_until: until, days: readDaysPicker('s') }, names);
-    render();
+    const b = view.querySelector('[data-act=create]');
+    b.disabled = true;
+    Promise.resolve(S.createRoom({ name, open_from: from, open_until: until, days: readDaysPicker('s') }, names))
+      .then(() => {
+        if (CLOUD) toast('部屋を作りました。設定画面の URL を Zoom のチャットに貼ってください');
+        render();
+      })
+      .catch((e) => {
+        console.error(e);
+        b.disabled = false;
+        toast('部屋を作れませんでした。通信の状態を確かめてください');
+      });
   }
 
   function startDemo() {
@@ -552,7 +575,7 @@
     ui.dupOk = null;
   }
 
-  function save() {
+  async function save() {
     syncText();
     const t = target();
     const f = ui.form;
@@ -568,7 +591,7 @@
       const changed = Object.keys(patch).some((k) => patch[k] !== ed.orig[k]);
       // 購入物・請負人・備考が変わったときだけ version を比べて保存する。
       // 依頼人の個数だけの変更では version を上げない（他の人の編集を止めないため）。
-      const r = changed ? S.updateItem(ed.id, patch, ed.version, me) : { ok: true };
+      const r = changed ? await S.updateItem(ed.id, patch, ed.version, me) : { ok: true };
       if (!r.ok) {
         if (r.reason === 'conflict') {
           const by = mname(r.current.updated_by);
@@ -775,8 +798,9 @@
   }
 
   // 押した直後に呼ぶこと（クリップボードはボタン操作の中でしか書けない）
-  function copyText(text, label) {
-    const ta = $('#exText');
+  function copyText(text, label, boxSel) {
+    // コピーできないときに長押しで選べるよう、画面の欄にも同じ内容を入れておく
+    const ta = $(boxSel || '#exText');
     ta.value = text;
     const fallback = () => {
       ta.focus();
@@ -808,8 +832,18 @@
   function renderSettings() {
     const room = st().room;
     const ms = members();
+    const owner = S.isOwner();
+    const shareUrl = S.roomUrl();
     view.innerHTML = `
-      <section class="card">
+      ${shareUrl ? `<section class="card">
+        <h2>部屋の URL</h2>
+        <p class="muted">参加者にはこの URL を送ります（Zoom のチャットなど）。</p>
+        <textarea id="shareUrl" rows="3" readonly>${esc(shareUrl)}</textarea>
+        <button type="button" data-act="copyUrl">URL をコピー</button>
+      </section>` : ''}
+      ${owner ? '' : `<section class="card"><p class="muted">開催日・公開時間帯・メンバーは、進行役だけが変えられます。</p>
+        <p>開催日：${getDays().map(L.dayLabel).join('・')}<br>公開：${toLocalInput(room.open_from).replace('T', ' ')} 〜 ${toLocalInput(room.open_until).replace('T', ' ')}</p></section>`}
+      ${owner ? `<section class="card">
         <h2>開催日</h2>
         ${daysPickerHTML('d', getDays())}
         <button type="button" data-act="daysSave">開催日を保存</button>
@@ -826,7 +860,7 @@
           <button type="button" data-act="wClose">今すぐ閉じる</button>
           <button type="button" data-act="wExtend">30 分延長</button>
         </div>
-        <p class="hint">試作（P1）では時間外でも操作できます。時間外の制限は P3 で入れます。</p>
+        <p class="hint">${CLOUD ? '時間外は、進行役のほかは部屋を開けません。進行役は時間外でも出力・削除ができます。' : 'この端末だけの版では、時間外でも操作できます。'}</p>
       </section>
       <section class="card">
         <h2>メンバー（${ms.length}/${MAX_MEMBERS}）</h2>
@@ -845,18 +879,18 @@
           <input type="text" id="mNew" placeholder="追加する人の名前" aria-label="追加する人の名前">
           <button type="button" data-act="mAdd" style="flex:0 0 auto">追加</button>
         </div>` : ''}
-      </section>
+      </section>` : ''}
       <section class="card">
         <h2>この端末</h2>
         <p>あなた：<strong>${esc(mname(me))}</strong></p>
         <button type="button" data-act="who">別の人に切り替える</button>
-        <p class="hint">「この端末の ID」（進行役の復旧用）は P2 で Firebase をつないだ後に表示します。</p>
+        ${S.deviceId() ? `<p class="hint">この端末の ID（進行役が端末を変えたときの復旧用）：<br><code id="deviceId">${esc(S.deviceId())}</code></p>` : ''}
       </section>
-      <section class="card">
+      ${owner ? `<section class="card">
         <h2>データを消す</h2>
-        <p class="muted">この端末に保存した部屋・メンバー・購入物をすべて消します。</p>
+        <p class="muted">${CLOUD ? '会議が終わって、全員が出力を済ませたら、部屋・メンバー・購入物をすべて消します。元に戻せません。' : 'この端末に保存した部屋・メンバー・購入物をすべて消します。'}</p>
         <button type="button" class="danger" data-act="reset">すべて消す</button>
-      </section>`;
+      </section>` : ''}`;
   }
 
   function saveWindow(from, until) {
@@ -1031,10 +1065,20 @@
         return render();
       case 'reset':
         if (!armed(b, 'もう一度押すと全部消えます')) return;
-        setMe(null);
         resetForm();
-        S.reset();
-        return render();
+        b.disabled = true;
+        return Promise.resolve(S.reset())
+          .then(() => {
+            setMe(null);
+            render();
+          })
+          .catch((e) => {
+            console.error(e);
+            toast('消せませんでした。通信の状態を確かめてください');
+            render();
+          });
+      case 'copyUrl':
+        return copyText(S.roomUrl(), 'URL ', '#shareUrl');
     }
   });
 
@@ -1088,6 +1132,8 @@
 
   // 別タブ（P2 以降は別の端末）の変更を反映する。入力中の欄は書き換えない。
   S.subscribe(() => {
+    me = S.getMe();
+    if (S.status() !== 'ok') return render();
     const ready = st().room && me && st().members.some((m) => m.id === me);
     if (ui.tab === 'input' && ready && $('#existing')) {
       renderBanner();
@@ -1096,6 +1142,11 @@
     } else render();
   });
 
+  S.onError(() => toast('保存できませんでした。公開時間外か、通信が切れています'));
   setInterval(renderBanner, 30000);
   render();
+  S.ready().then(() => {
+    me = S.getMe();
+    render();
+  });
 })();

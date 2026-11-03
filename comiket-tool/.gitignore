@@ -1,3 +1,7 @@
 # 本物のカタログや、そこから作ったファイルはリポジトリに入れない（個人の情報やメモを含むため）
 real-data/
 *.real.js
+dist/
+node_modules/
+.firebase/
+*-debug.log

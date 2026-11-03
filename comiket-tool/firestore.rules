@@ -1,0 +1,87 @@
+rules_version = '2';
+
+// コミケ買い物分担ツールのルール。
+// - 部屋は URL（?room=…）を知る人だけが開ける。一覧を取ることはできない。
+// - メンバー（名前を選んだ端末）は、公開時間内だけ読み書きできる。
+// - 進行役（部屋を作った端末）は、時間に関係なく読み書き・削除できる。
+// - 開催日・時間帯・メンバーを変えられるのは進行役だけ。
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /rooms/{rid} {
+      function roomPath() { return /databases/$(db)/documents/rooms/$(rid); }
+      function room() { return get(roomPath()).data; }
+      function signedIn() { return request.auth != null; }
+      function isOwner() { return signedIn() && room().owner_uid == request.auth.uid; }
+      function isOpen() { return request.time >= room().open_from && request.time < room().open_until; }
+      function isMember() {
+        return signedIn() && exists(/databases/$(db)/documents/rooms/$(rid)/uids/$(request.auth.uid));
+      }
+      function myMemberId() {
+        return get(/databases/$(db)/documents/rooms/$(rid)/uids/$(request.auth.uid)).data.member_id;
+      }
+      function validRoom(d) {
+        return d.keys().hasOnly(['name', 'days', 'open_from', 'open_until', 'owner_uid', 'created_at'])
+          && d.name is string && d.name.size() > 0 && d.name.size() <= 60
+          && d.days is list && d.days.size() <= 7
+          && d.open_from is timestamp && d.open_until is timestamp && d.open_from < d.open_until
+          && d.owner_uid is string;
+      }
+
+      allow get: if signedIn() && (
+        resource.data.owner_uid == request.auth.uid
+        || (request.time >= resource.data.open_from && request.time < resource.data.open_until));
+      allow list: if false;
+      allow create: if signedIn() && request.resource.data.owner_uid == request.auth.uid
+        && validRoom(request.resource.data);
+      allow update: if signedIn() && resource.data.owner_uid == request.auth.uid
+        && request.resource.data.owner_uid == resource.data.owner_uid
+        && validRoom(request.resource.data);
+      allow delete: if signedIn() && resource.data.owner_uid == request.auth.uid;
+
+      match /members/{mid} {
+        allow read: if isOwner() || (signedIn() && isOpen());
+        allow create, update: if isOwner()
+          && request.resource.data.keys().hasOnly(['name', 'order'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
+          && request.resource.data.order is int;
+        allow delete: if isOwner();
+      }
+
+      // この端末（uid）が誰か。自分の分だけ、公開時間内に（進行役はいつでも）書ける
+      match /uids/{uid} {
+        allow read: if signedIn() && (request.auth.uid == uid || isOwner());
+        allow create, update: if signedIn() && request.auth.uid == uid
+          && (isOwner() || isOpen())
+          && request.resource.data.keys().hasOnly(['member_id'])
+          && exists(/databases/$(db)/documents/rooms/$(rid)/members/$(request.resource.data.member_id));
+        allow delete: if signedIn() && (request.auth.uid == uid || isOwner());
+      }
+
+      match /items/{iid} {
+        function canWrite() { return isOwner() || (isMember() && isOpen()); }
+        function validItem(d) {
+          return d.keys().hasOnly(['day', 'kind', 'circle_no', 'circle_name', 'from_catalog', 'item', 'requests',
+                                   'assignee', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at',
+                                   'version', 'deleted'])
+            && d.day is string && d.day.size() <= 2
+            && d.kind in ['circle', 'corporate']
+            && d.circle_no is string && d.circle_no.size() > 0 && d.circle_no.size() <= 20
+            && d.circle_name is string && d.circle_name.size() <= 100
+            && d.item is string && d.item.size() > 0 && d.item.size() <= 100
+            && d.requests is map && d.requests.size() <= 10
+            && (d.assignee == null || d.assignee is string)
+            && d.note is string && d.note.size() <= 500
+            && d.version is int && d.deleted is bool;
+        }
+        allow read: if isOwner() || (isMember() && isOpen());
+        allow create: if canWrite() && validItem(request.resource.data)
+          && (isOwner() || request.resource.data.created_by == myMemberId());
+        allow update: if canWrite() && validItem(request.resource.data)
+          && request.resource.data.created_by == resource.data.created_by;
+        // 削除は「削除済み」の印を付けるだけ。消すのは進行役が部屋ごと消すとき
+        allow delete: if isOwner();
+      }
+    }
+  }
+}
