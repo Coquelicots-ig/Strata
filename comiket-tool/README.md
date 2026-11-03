@@ -11,6 +11,14 @@ python3 tools/build_hosting.py --firebase node_modules/firebase --catalog real-d
 npx firebase deploy --only hosting,firestore:rules --project comiketmtg
 ```
 
+会議のない期間は全部の読み書きを止める（Windows では close.bat / open.bat をダブルクリック）：
+
+```sh
+npx firebase deploy --only firestore:rules --config firebase.closed.json --project comiketmtg   # 止める
+npx firebase hosting:disable --force --project comiketmtg                                      # ページを閉じる
+npx firebase deploy --only hosting,firestore:rules --project comiketmtg                         # 会議の前に戻す
+```
+
 偽の Firebase（エミュレーター）で 2 台ぶん動かすテスト（本物のプロジェクトには触れない）：
 
 ```sh

@@ -1,0 +1,11 @@
+rules_version = '2';
+
+// 会議のない期間に使うルール：誰も、何も読み書きできない。
+// 会議の前に firestore.rules（通常のルール）に戻す。
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
