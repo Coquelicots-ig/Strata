@@ -45,13 +45,12 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   // 画面を使えるようにして、番号を 1 文字打つたびの時間
   await page.click('[data-act=demo]');
   await page.click('[data-act=me] >> nth=0');
+  // テンキーを 1 回押すごとの時間（押す → 検索 → 表示）
   const keyMs = await page.evaluate(async () => {
-    const el = document.querySelector('#numInput');
     const times = [];
-    for (const v of ['1', '12', '1', '', '3', '33']) {
+    for (const k of ['clr', '1', '2', 'clr', '3', '3']) {
       const t = performance.now();
-      el.value = v;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector(`.keypad [data-k="${k}"]`).click();
       times.push(performance.now() - t);
     }
     return times;
@@ -65,7 +64,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   console.log(`カタログ ${n} 件、CPU ${SLOW} 倍遅く`);
   console.log(`ページの読み込み（ローカル通信、索引づくりを含む）: ${loadMs} ms`);
   console.log(`索引づくりだけ: ${indexMs.toFixed(0)} ms`);
-  console.log(`番号を 1 文字打つごと: ${keyMs.map((x) => x.toFixed(1)).join(', ')} ms`);
+  console.log(`テンキーを 1 回押すごと: ${keyMs.map((x) => x.toFixed(1)).join(', ')} ms`);
   console.log(`ホールを切り替え（ブロックのボタンを描き直す）: ${blockMs.toFixed(1)} ms`);
   await browser.close();
   srv.close();

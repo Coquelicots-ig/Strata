@@ -23,12 +23,19 @@ function serve() {
   return new Promise((r) => srv.listen(0, '127.0.0.1', () => r(srv)));
 }
 
+
+// テンキーで番号を入れる（クリアしてから 1 文字ずつ押す）
+async function typeNum(page, num) {
+  await page.click('.keypad [data-k="clr"]');
+  for (const ch of String(num)) await page.click(`.keypad [data-k="${ch}"]`);
+}
+
 // ブロックを「指定なし」にしてホールと a/b をタップし、数字を入れる。ブロック違いの候補が出たら pick のブロックを選ぶ
 async function space(page, hall, num, ab, pick) {
   await page.click('#slot [data-slot="0"]');
   await page.click(`[data-act=hall][data-hall="${hall}"]`);
   await page.click(`[data-act=ab][data-ab="${ab}"]`);
-  await page.fill('#numInput', num);
+  await typeNum(page, num);
   if (pick) await page.click(`#lookup [data-act=block][data-block="${pick}"]`);
 }
 
@@ -74,7 +81,7 @@ async function shot(page, name) {
   await p1.click('[data-act=me]:has-text("Aさん")');
 
   // ホール・数字・a/b で探す。全角の数字でもよい。ブロック違いが 2 件あるので選ぶ
-  await space(p1, '東', '１', 'a', 'A');
+  await space(p1, '東', '1', 'a', 'A');
   assert.match(await p1.textContent('#lookup .found, #lookup .cands'), /ダミーサークル壱/);
   // 購入物は「新刊」、依頼人の個数は全員 0 で始まる
   assert.equal(await p1.inputValue('#fItem'), '新刊');
@@ -92,6 +99,8 @@ async function shot(page, name) {
   assert.equal(await p1.locator('#existing .item').count(), 1);
   assert.match(await p1.textContent('#existing .item'), /計3/);
   assert.equal(await p1.inputValue('#fItem'), '新刊'); // 登録後も新刊に戻る
+  // 登録の直後は番号が薄く表示され、次にテンキーを押すと新しい番号になる
+  assert.equal(await p1.locator('#numDisplay .fresh').count(), 1);
 
   // 選んだブロック A は残るので、数字と b だけで東A01b が出る
   assert.equal(await selectedSlot(p1), '東A');
@@ -100,8 +109,21 @@ async function shot(page, name) {
   // ブロック ア を選んで 3 と打つ
   await p1.click('[data-act=ab][data-ab="a"]');
   await pickBlock(p1, '東', 'ア');
-  await p1.fill('#numInput', '3');
+  await typeNum(p1, '3');
   assert.match(await p1.textContent('#lookup .found'), /アブロック堂/);
+  // サークルは 2 桁まで。3 桁目を押すと新しい番号として打ち始める。⌫ で 1 文字消す
+  await p1.click('.keypad [data-k="clr"]');
+  await p1.click('.keypad [data-k="1"]');
+  assert.equal(await p1.textContent('#numDisplay'), '1');
+  await p1.click('.keypad [data-k="2"]');
+  await p1.click('.keypad [data-k="5"]');
+  assert.equal(await p1.textContent('#numDisplay'), '5');
+  await p1.click('.keypad [data-k="7"]');
+  await p1.click('.keypad [data-k="bs"]');
+  assert.equal(await p1.textContent('#numDisplay'), '5');
+  await typeNum(p1, '3');
+  // 番号の欄は入力欄ではない（スマホのキーボードが出ない）
+  assert.equal(await p1.locator('#lookup ~ input, .numrow input').count(), 0);
   // スロットを指で回したのと同じく、スクロールを止めた位置のブロックが選ばれ、ホールも変わる
   const westA = await p1.evaluate(() => [...document.querySelectorAll('#slot .slot-item')].findIndex((el) => el.textContent.replace(/\s+/g, '') === '西あ'));
   await p1.evaluate((k) => { document.querySelector('#slot').scrollTop = k * 48; }, westA);
@@ -131,7 +153,7 @@ async function shot(page, name) {
   // 企業ブース
   await p1.click('[data-act=kind][data-kind=corporate]');
   assert.equal(await p1.locator('[data-act=hall]').count(), 0);
-  await p1.fill('#numInput', '101');
+  await typeNum(p1, '101');
   assert.match(await p1.textContent('#lookup .found'), /ダミー出版/);
   await p1.fill('#fItem', '限定グッズ');
   await plus(p1, 0);

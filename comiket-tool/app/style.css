@@ -170,7 +170,17 @@ button:disabled { opacity: .5; }
 .filters select { flex: 1 1 0; min-width: 0; padding: 8px; font-size: 15px; }
 
 .numrow { display: flex; gap: 8px; align-items: stretch; }
-.numrow input { flex: 1 1 auto; min-width: 0; font-size: 20px; font-variant-numeric: tabular-nums; }
+.numdisp {
+  flex: 1 1 auto; min-width: 0; min-height: 48px; display: flex; align-items: center; justify-content: flex-end;
+  padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+  font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .04em;
+}
+.numdisp .ph { color: var(--muted); font-size: 16px; font-weight: 400; }
+.numdisp .fresh { color: var(--muted); }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.keypad button { min-height: 48px; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; touch-action: manipulation; }
+.keypad button.fn { font-size: 15px; font-weight: 400; color: var(--muted); }
+.keypad button:active { background: var(--accent-soft); }
 .numrow .seg { flex: 0 0 auto; margin-bottom: 0; }
 .numrow .seg button { min-width: 52px; }
 .cands button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }

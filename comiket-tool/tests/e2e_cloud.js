@@ -32,11 +32,18 @@ function local(ms) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+
+
+// テンキーで番号を入れる（クリアしてから 1 文字ずつ押す）
+async function typeNum(page, num) {
+  await page.click('.keypad [data-k="clr"]');
+  for (const ch of String(num)) await page.click(`.keypad [data-k="${ch}"]`);
+}
 async function space(page, hall, num, ab) {
   await page.click('#slot [data-slot="0"]');
   await page.click(`[data-act=hall][data-hall="${hall}"]`);
   await page.click(`[data-act=ab][data-ab="${ab}"]`);
-  await page.fill('#numInput', num);
+  await typeNum(page, num);
 }
 
 (async () => {

@@ -52,7 +52,8 @@
     kind: 'circle',
     hall: '東',
     ab: 'a',
-    num: '', // 数字だけ（企業ブースも数字だけ）
+    num: '', // 数字だけ（企業ブースも数字だけ）。テンキーで入れる
+    numFresh: false, // 登録の直後。次にテンキーを押すと新しい番号になる
     block: null, // 選んだブロック。null は「指定なし」。登録後も残す
     manualBlock: '',
     manualName: '',
@@ -405,6 +406,32 @@
     if (ui.block != null && !L.blockGroups(IDX, ui.day, ui.hall).some((g) => g.includes(ui.block))) ui.block = null;
   }
 
+  // ---- 番号のテンキー（スマホのキーボードを出さない） ----
+  const numMax = () => (ui.kind === 'circle' ? 2 : 4); // サークルは 2 桁、企業ブースは 4 桁まで
+  function numDisplayHTML() {
+    if (!ui.num) return `<span class="ph">${ui.kind === 'circle' ? '番号' : 'ブース番号'}</span>`;
+    return `<span class="${ui.numFresh ? 'fresh' : ''}">${esc(ui.num)}</span>`;
+  }
+  function keypadHTML() {
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clr', '0', 'bs'];
+    const label = { clr: 'クリア', bs: '⌫' };
+    const aria = { clr: '番号を消す', bs: '1 文字消す' };
+    return `<div class="keypad">${keys
+      .map((k) => `<button type="button" data-act="key" data-k="${k}" class="${label[k] ? 'fn' : ''}" ${aria[k] ? `aria-label="${aria[k]}"` : ''}>${label[k] || k}</button>`)
+      .join('')}</div>`;
+  }
+  function pressKey(k) {
+    if (k === 'clr') ui.num = '';
+    else if (k === 'bs') ui.num = ui.numFresh ? '' : ui.num.slice(0, -1);
+    else {
+      // 登録の直後か、桁がいっぱいなら、新しい番号として打ち始める
+      if (ui.numFresh || ui.num.length >= numMax()) ui.num = '';
+      ui.num += k;
+    }
+    ui.numFresh = false;
+    $('#numDisplay').innerHTML = numDisplayHTML();
+  }
+
   function renderInput() {
     if (!ui.form) ui.form = newForm();
     const circle = ui.kind === 'circle';
@@ -417,12 +444,12 @@
           <div id="hallSeg" class="hallcol">${segHTML('hall', 'hall', L.HALLS, ui.hall)}</div>
           ${slotHTML()}
         </div>` : ''}
-        <label for="numInput">${circle ? '番号（数字だけ）と a / b' : '企業ブース番号（数字だけ）'}</label>
+        <label>${circle ? '番号と a / b' : '企業ブース番号'}</label>
         <div class="numrow">
-          <input type="text" id="numInput" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
-            placeholder="${circle ? '例: 1' : '例: 101'}" value="${esc(ui.num)}">
+          <div id="numDisplay" class="numdisp" role="status" aria-live="polite">${numDisplayHTML()}</div>
           ${circle ? segHTML('ab', 'ab', ['a', 'b'], ui.ab) : ''}
         </div>
+        ${keypadHTML()}
         <div id="lookup"></div>
       </section>
       <section id="existing"></section>
@@ -641,6 +668,7 @@
   // 保存・やめる・削除の後。一覧から編集に来ていれば一覧へ戻る
   function finishForm() {
     resetForm();
+    ui.numFresh = !!ui.num;
     if (ui.returnTo) {
       ui.tab = ui.returnTo;
       ui.returnTo = null;
@@ -656,6 +684,7 @@
     ui.kind = i.kind;
     ui.manualName = i.from_catalog ? '' : i.circle_name;
     ui.manualBlock = '';
+    ui.numFresh = false;
     if (i.kind === 'corporate') ui.num = i.circle_no.replace(/^企業/, '');
     else {
       const p = L.parseSpace(i.circle_no);
@@ -943,6 +972,10 @@
         ui.manualName = '';
         ui.manualBlock = '';
         return renderInput();
+      case 'key':
+        syncText();
+        pressKey(b.dataset.k);
+        return updateLookup();
       case 'slot':
         chooseSlot(Number(b.dataset.slot));
         return scrollSlot(true);
@@ -1083,11 +1116,7 @@
   });
 
   view.addEventListener('input', (e) => {
-    if (e.target.id === 'numInput') {
-      syncText();
-      ui.num = e.target.value;
-      updateLookup();
-    } else if (e.target.id === 'manualBlock') {
+    if (e.target.id === 'manualBlock') {
       // 入力中の欄を書き換えないよう、下の 2 つだけ描き直す
       syncText();
       ui.manualBlock = e.target.value;
@@ -1097,11 +1126,6 @@
     } else if (e.target.id === 'manualName') {
       ui.manualName = e.target.value;
     }
-  });
-
-  // 番号欄に触れたら中身を全部選ぶ。次の番号をそのまま打ち込める
-  view.addEventListener('focusin', (e) => {
-    if (e.target.id === 'numInput') setTimeout(() => e.target.select(), 0);
   });
 
   view.addEventListener('change', (e) => {
